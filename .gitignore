@@ -2,7 +2,9 @@
 *.py[cod] 
 .env 
 # Data 
-data/ 
+data/raw/
+data/processed/
+data/*.json
 # IDE 
 .idea/ 
 .vscode/ 
