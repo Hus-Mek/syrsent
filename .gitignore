@@ -1,0 +1,8 @@
+# Python 
+*.py[cod] 
+.env 
+# Data 
+data/ 
+# IDE 
+.idea/ 
+.vscode/ 
