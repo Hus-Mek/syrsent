@@ -38,13 +38,16 @@ def reindex():
 @app.route("/api/analyze", methods=["POST"])
 def analyze():
     """Analyze sentiment toward targets using RAG."""
+    print("=== ANALYZE CALLED ===")  # Add this line
     data = request.json
+    print(f"Targets: {data.get('targets', [])}")  # Add this line
     targets = data.get("targets", [])
     
     if not targets:
         return jsonify({"error": "No targets provided"}), 400
     
     result = analyze_sentiment(targets, client)
+    print(f"Result: {result}")  # Add this line
     
     return jsonify({"sentiment_analysis": result})
 

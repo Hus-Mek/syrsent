@@ -53,8 +53,19 @@ function App() {
       }
 
       const data = await response.json();
+      console.log("=== RAW DATA ===", data);
+      console.log("=== SENTIMENT STRING ===", data.sentiment_analysis);
+      
+      try {
+        const parsed = JSON.parse(data.sentiment_analysis);
+        console.log("=== PARSED OK ===", parsed);
+      } catch (e) {
+        console.error("=== PARSE FAILED ===", e);
+      }
+      
       setResult(data);
     } catch (err) {
+      console.error("=== FETCH ERROR ===", err);
       setError('Failed to connect to server. Is the API running?');
     }
 
@@ -66,7 +77,8 @@ function App() {
     if (!sentimentStr) return null;
     try {
       return JSON.parse(sentimentStr);
-    } catch {
+    } catch (e) {
+      console.error("parseSentiment failed:", e);
       return null;
     }
   };
