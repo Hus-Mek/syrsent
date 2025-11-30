@@ -17,18 +17,23 @@ def clean_json_response(text):
     Clean Qwen response to extract valid JSON.
     
     Handles:
-    - <think>...</think> tags
+    - <think>...</think> tags (sometimes doubled)
     - ```json blocks
     - Control characters
     - Truncated responses
-    - Newlines in strings
+    - Different JSON structures from Qwen
     """
     
-    original = text
+    print(f"Raw text length: {len(text)}")
     
-    # Remove <think>...</think> tags (Qwen's reasoning)
-    if "<think>" in text:
+    # Remove ALL <think> tags and their content (Qwen sometimes nests them)
+    while "<think>" in text:
         text = re.sub(r'<think>[\s\S]*?</think>', '', text)
+        # Also remove unclosed <think> tags
+        text = re.sub(r'<think>[\s\S]*$', '', text)
+    
+    # Remove any remaining <think> or </think> tags
+    text = text.replace('<think>', '').replace('</think>', '')
     
     # Remove markdown code blocks
     if "```" in text:
@@ -58,18 +63,8 @@ def clean_json_response(text):
     
     text = text[start:end]
     
-    # Clean control characters (keep Arabic, keep \n in proper places)
+    # Clean control characters (keep Arabic)
     text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
-    
-    # Fix newlines inside JSON strings (common Qwen issue)
-    # Replace actual newlines inside strings with \n escape
-    def fix_string_newlines(m):
-        s = m.group(0)
-        # Replace actual newlines with escaped ones
-        s = s.replace('\n', '\\n').replace('\r', '\\r')
-        return s
-    
-    text = re.sub(r'"[^"]*"', fix_string_newlines, text)
     
     # Try to parse
     try:
@@ -77,11 +72,10 @@ def clean_json_response(text):
         return parsed
     except json.JSONDecodeError as e:
         print(f"JSON parse error: {e}")
-        print(f"Attempted to parse: {text[:500]}...")
+        print(f"Attempted to parse: {text[:300]}...")
         
         # Try fixing truncated JSON
         try:
-            # Close any open strings and braces
             fixed = text.rstrip()
             open_braces = fixed.count("{") - fixed.count("}")
             open_brackets = fixed.count("[") - fixed.count("]")
@@ -93,10 +87,57 @@ def clean_json_response(text):
             fixed += "}" * open_braces
             
             return json.loads(fixed)
-        except:
+        except Exception as e2:
+            print(f"Fix attempt failed: {e2}")
             pass
         
         return None
+
+
+def convert_qwen_format(parsed):
+    """
+    Convert Qwen's array format to our expected object format.
+    
+    Qwen returns: {"targets": [{"name": "X", "polarity": -1, ...}]}
+    We need:      {"targets": {"X": {"sentiment": "negative", "score": -1, ...}}}
+    """
+    if not parsed:
+        return None
+    
+    # If already in correct format, return as-is
+    if "targets" in parsed and isinstance(parsed["targets"], dict):
+        return parsed
+    
+    # Convert array format to object format
+    if "targets" in parsed and isinstance(parsed["targets"], list):
+        new_targets = {}
+        for item in parsed["targets"]:
+            name = item.get("name") or item.get("target") or "Unknown"
+            
+            # Map polarity to sentiment
+            polarity = item.get("polarity", 0)
+            if isinstance(polarity, (int, float)):
+                sentiment = "negative" if polarity < -0.2 else "positive" if polarity > 0.2 else "neutral"
+            else:
+                sentiment = item.get("sentiment", "neutral")
+            
+            new_targets[name] = {
+                "sentiment": sentiment,
+                "score": item.get("polarity", item.get("score", 0)),
+                "reasoning": item.get("explanation", item.get("reasoning", "")),
+                "evidence": item.get("evidence", [])
+            }
+        
+        return {"targets": new_targets}
+    
+    # If it's just a dict of targets without wrapper
+    if isinstance(parsed, dict) and "targets" not in parsed:
+        # Check if it looks like targets
+        first_val = next(iter(parsed.values()), None)
+        if isinstance(first_val, dict) and any(k in first_val for k in ["sentiment", "score", "polarity"]):
+            return {"targets": parsed}
+    
+    return parsed
 
 
 def analyze_sentiment(targets, client, n_chunks=100):
@@ -191,9 +232,14 @@ Context:
         parsed = clean_json_response(result_text)
         
         if parsed:
-            # Validate and fix structure
-            if "targets" not in parsed:
-                parsed = {"targets": parsed}
+            # Convert Qwen's format to our expected format
+            parsed = convert_qwen_format(parsed)
+            
+            if not parsed or "targets" not in parsed:
+                return json.dumps({
+                    "error": "Invalid response structure",
+                    "targets": {}
+                }, ensure_ascii=False)
             
             # Ensure each target has required fields
             for target, data in parsed.get("targets", {}).items():
