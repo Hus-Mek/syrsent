@@ -129,18 +129,38 @@ function App() {
         );
       }
       
-      // Handle object format: {quote, source, date}
+      // Handle object format: {quote, source, date, sentiment}
+      const sentimentClass = ev.sentiment === 'positive' ? 'positive' : 
+                            ev.sentiment === 'negative' ? 'negative' : '';
+      
       return (
-        <div key={i} className="evidence-item">
+        <div key={i} className={`evidence-item ${sentimentClass}`}>
           <blockquote>"{ev.quote}"</blockquote>
           {(ev.source || ev.date) && (
             <div className="evidence-source">
               — {ev.source || 'Unknown source'} {ev.date && ev.date !== 'Unknown' ? `(${ev.date})` : ''}
+              {ev.sentiment && <span className={`sentiment-tag ${ev.sentiment}`}>{ev.sentiment}</span>}
             </div>
           )}
         </div>
       );
     });
+  };
+
+  // Render aspects (positive/negative)
+  const renderAspects = (aspects, type) => {
+    if (!aspects || aspects.length === 0) return null;
+    
+    return (
+      <div className={`aspects ${type}`}>
+        <strong>{type === 'positive' ? '✓ Positive Aspects:' : '✗ Negative Aspects:'}</strong>
+        <ul>
+          {aspects.map((aspect, i) => (
+            <li key={i}>{aspect}</li>
+          ))}
+        </ul>
+      </div>
+    );
   };
 
   const sentiment = result ? parseSentiment(result.sentiment_analysis) : null;
@@ -216,16 +236,34 @@ function App() {
               <div key={target} className="target-card">
                 <div className="target-header">
                   <h3>{target}</h3>
-                  <span 
-                    className="score-badge"
-                    style={{ background: getScoreColor(data.score) }}
-                  >
-                    {data.sentiment} ({data.score})
-                  </span>
+                  <div className="header-badges">
+                    <span 
+                      className="score-badge"
+                      style={{ background: getScoreColor(data.score) }}
+                    >
+                      {data.sentiment} ({data.score})
+                    </span>
+                    {data.confidence && (
+                      <span className="confidence-badge">
+                        Confidence: {Math.round(data.confidence * 100)}%
+                      </span>
+                    )}
+                    {data.article_count && (
+                      <span className="article-count-badge">
+                        {data.article_count} articles
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="reasoning">
                   <strong>Reasoning:</strong> {data.reasoning || 'No reasoning provided'}
+                </div>
+
+                {/* Positive and Negative Aspects */}
+                <div className="aspects-container">
+                  {renderAspects(data.positive_aspects, 'positive')}
+                  {renderAspects(data.negative_aspects, 'negative')}
                 </div>
 
                 <div className="evidence-section">
