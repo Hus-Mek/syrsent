@@ -42,7 +42,7 @@ function App() {
     const targetList = targets.split(',').map(t => t.trim()).filter(t => t);
 
     try {
-      const response = await fetch('https://Hussssa-syria-sentiment.hf.space/api/analyze', {
+      const response = await fetch('https://hussssa-syrsenthf.hf.space/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targets: targetList })
