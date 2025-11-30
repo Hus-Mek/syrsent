@@ -38,6 +38,7 @@ function App() {
 
     setLoading(true);
     setError('');
+    setResult(null);
 
     const targetList = targets.split(',').map(t => t.trim()).filter(t => t);
 
@@ -54,14 +55,6 @@ function App() {
 
       const data = await response.json();
       console.log("=== RAW DATA ===", data);
-      console.log("=== SENTIMENT STRING ===", data.sentiment_analysis);
-      
-      try {
-        const parsed = JSON.parse(data.sentiment_analysis);
-        console.log("=== PARSED OK ===", parsed);
-      } catch (e) {
-        console.error("=== PARSE FAILED ===", e);
-      }
       
       setResult(data);
     } catch (err) {
@@ -76,7 +69,14 @@ function App() {
   const parseSentiment = (sentimentStr) => {
     if (!sentimentStr) return null;
     try {
-      return JSON.parse(sentimentStr);
+      const parsed = JSON.parse(sentimentStr);
+      // Check for error response
+      if (parsed.error) {
+        console.error("API returned error:", parsed.error);
+        setError(parsed.error);
+        return null;
+      }
+      return parsed;
     } catch (e) {
       console.error("parseSentiment failed:", e);
       return null;
@@ -113,11 +113,42 @@ function App() {
     };
   };
 
+  // Get evidence display - handles both string and object formats
+  const renderEvidence = (evidence) => {
+    if (!evidence || evidence.length === 0) {
+      return <p className="no-evidence">No evidence quotes found</p>;
+    }
+
+    return evidence.map((ev, i) => {
+      // Handle string format: "quote text"
+      if (typeof ev === 'string') {
+        return (
+          <div key={i} className="evidence-item">
+            <blockquote>"{ev}"</blockquote>
+          </div>
+        );
+      }
+      
+      // Handle object format: {quote, source, date}
+      return (
+        <div key={i} className="evidence-item">
+          <blockquote>"{ev.quote}"</blockquote>
+          {(ev.source || ev.date) && (
+            <div className="evidence-source">
+              — {ev.source || 'Unknown source'} {ev.date && ev.date !== 'Unknown' ? `(${ev.date})` : ''}
+            </div>
+          )}
+        </div>
+      );
+    });
+  };
+
   const sentiment = result ? parseSentiment(result.sentiment_analysis) : null;
 
   return (
     <div className="App">
       <h1>Syria Sentiment Analyzer</h1>
+      <p className="subtitle">Analyzing Arabic articles from Syrian Dialogue Center</p>
 
       <div className="input-section">
         <label>Enter targets (comma separated):</label>
@@ -125,14 +156,23 @@ function App() {
           type="text"
           value={targets}
           onChange={(e) => setTargets(e.target.value)}
-          placeholder="Assad regime, opposition, civilians, Russia"
+          placeholder="الأسد, روسيا, أمريكا, المعارضة"
         />
         <button onClick={runAnalysis} disabled={loading}>
           {loading ? 'Analyzing...' : 'Run Analysis'}
         </button>
+        <p className="hint">
+          Try: Assad, الأسد, Russia, روسيا, Iran, إيران, Turkey, تركيا
+        </p>
       </div>
 
       {error && <p className="error">{error}</p>}
+
+      {loading && (
+        <div className="loading">
+          <p>Analyzing articles... This may take a moment.</p>
+        </div>
+      )}
 
       {sentiment && (
         <div className="results">
@@ -185,22 +225,13 @@ function App() {
                 </div>
 
                 <div className="reasoning">
-                  <strong>Reasoning:</strong> {data.reasoning}
+                  <strong>Reasoning:</strong> {data.reasoning || 'No reasoning provided'}
                 </div>
 
-                {data.evidence && data.evidence.length > 0 && (
-                  <div className="evidence-section">
-                    <strong>Evidence:</strong>
-                    {data.evidence.map((ev, i) => (
-                      <div key={i} className="evidence-item">
-                        <blockquote>"{ev.quote}"</blockquote>
-                        <div className="evidence-source">
-                          — {ev.source} ({ev.date})
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <div className="evidence-section">
+                  <strong>Evidence:</strong>
+                  {renderEvidence(data.evidence)}
+                </div>
               </div>
             ))}
           </div>
