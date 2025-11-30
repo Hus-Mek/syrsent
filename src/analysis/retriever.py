@@ -5,8 +5,7 @@ Retrieve relevant chunks from ChromaDB
 import chromadb
 from chromadb.utils import embedding_functions
 
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-
+EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 
 def get_collection(db_path="data/chroma_db"):
     """Get the ChromaDB collection."""

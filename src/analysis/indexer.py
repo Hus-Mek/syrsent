@@ -8,9 +8,9 @@ import chromadb
 from chromadb.utils import embedding_functions
 
 # Use sentence-transformers for embeddings
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 
-def load_articles(filepath="data/sydialogue_publications.json"):
+def load_articles(filepath="data/sydialogue_ar_publications.json"):
     """Load scraped articles."""
     with open(filepath, "r", encoding="utf-8") as f:
         return json.load(f)
