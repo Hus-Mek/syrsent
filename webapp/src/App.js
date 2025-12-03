@@ -148,7 +148,7 @@ function App() {
     }
   };
 
-  // Render evidence with period
+  // Render evidence with period and article
   const renderEvidence = (evidence) => {
     if (!evidence || evidence.length === 0) {
       return <p className="no-evidence">No evidence quotes available</p>;
@@ -162,6 +162,49 @@ function App() {
         <div key={i} className={`evidence-item ${sentimentClass}`}>
           <blockquote>"{typeof ev === 'string' ? ev : ev.quote}"</blockquote>
           <div className="evidence-meta">
+            {ev.article && <span className="evidence-article">📄 {ev.article}</span>}
+            {ev.period && <span className="evidence-period">{ev.period}</span>}
+            {ev.sentiment && <span className={`sentiment-tag ${ev.sentiment}`}>{ev.sentiment}</span>}
+          </div>
+        </div>
+      );
+    });
+  };
+
+  // Render evidence in period cards (compact version)
+  const renderPeriodEvidence = (evidence) => {
+    if (!evidence || evidence.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="period-evidence">
+        <strong>Key Quotes:</strong>
+        {evidence.slice(0, 2).map((ev, i) => (
+          <div key={i} className={`period-evidence-item sentiment-${ev.sentiment}`}>
+            <p className="period-quote">"{typeof ev === 'string' ? ev : ev.quote}"</p>
+            {ev.article && <span className="period-article">📄 {ev.article}</span>}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // Render evidence with period and article (main section)
+  const renderMainEvidence = (evidence) => {
+    if (!evidence || evidence.length === 0) {
+      return <p className="no-evidence">No evidence quotes available</p>;
+    }
+
+    return evidence.map((ev, i) => {
+      const sentimentClass = ev.sentiment === 'positive' ? 'evidence-positive' : 
+                            ev.sentiment === 'negative' ? 'evidence-negative' : '';
+      
+      return (
+        <div key={i} className={`evidence-item ${sentimentClass}`}>
+          <blockquote>"{typeof ev === 'string' ? ev : ev.quote}"</blockquote>
+          <div className="evidence-meta">
+            {ev.article && <span className="evidence-article">📄 {ev.article}</span>}
             {ev.period && <span className="evidence-period">{ev.period}</span>}
             {ev.sentiment && <span className={`sentiment-tag ${ev.sentiment}`}>{ev.sentiment}</span>}
           </div>
@@ -200,6 +243,7 @@ function App() {
               {period.reasoning && (
                 <p className="period-reasoning">{period.reasoning}</p>
               )}
+              {period.evidence && period.evidence.length > 0 && renderPeriodEvidence(period.evidence)}
             </div>
           ))}
         </div>
@@ -306,7 +350,7 @@ function App() {
               {/* Evidence */}
               <div className="evidence-section">
                 <h4>📝 Evidence Quotes</h4>
-                {renderEvidence(data.evidence)}
+                {renderMainEvidence(data.evidence)}
               </div>
 
             </div>
