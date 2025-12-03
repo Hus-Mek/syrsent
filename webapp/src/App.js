@@ -9,9 +9,10 @@ import {
   BarElement,
   Title,
   Tooltip,
-  Legend
+  Legend,
+  Filler
 } from 'chart.js';
-import { Bar } from 'react-chartjs-2';
+import { Line, Bar } from 'react-chartjs-2';
 
 ChartJS.register(
   CategoryScale,
@@ -21,7 +22,8 @@ ChartJS.register(
   BarElement,
   Title,
   Tooltip,
-  Legend
+  Legend,
+  Filler
 );
 
 function App() {
@@ -58,117 +60,159 @@ function App() {
       
       setResult(data);
     } catch (err) {
-      console.error("=== FETCH ERROR ===", err);
-      setError('Failed to connect to server. Is the API running?');
+      console.error("Fetch error:", err);
+      setError('Failed to connect to API. Is the server running?');
     }
 
     setLoading(false);
   };
 
-  // Parse sentiment JSON safely
+  // Parse sentiment analysis JSON
   const parseSentiment = (sentimentStr) => {
     if (!sentimentStr) return null;
     try {
-      const parsed = JSON.parse(sentimentStr);
-      // Check for error response
+      const parsed = typeof sentimentStr === 'string' ? JSON.parse(sentimentStr) : sentimentStr;
       if (parsed.error) {
-        console.error("API returned error:", parsed.error);
         setError(parsed.error);
         return null;
       }
       return parsed;
     } catch (e) {
-      console.error("parseSentiment failed:", e);
+      console.error("Parse failed:", e);
       return null;
     }
   };
 
-  // Get color based on score
+  // Color based on score
   const getScoreColor = (score) => {
     if (score > 0.2) return '#4caf50';
     if (score < -0.2) return '#f44336';
     return '#ff9800';
   };
 
-  // Build chart data from result
-  const getChartData = () => {
-    if (!result?.sentiment_analysis) return null;
+  const getTrendIcon = (trend) => {
+    if (trend === 'improving') return '📈';
+    if (trend === 'declining') return '📉';
+    return '➡️';
+  };
 
-    const sentiment = parseSentiment(result.sentiment_analysis);
-    if (!sentiment?.targets) return null;
-
-    const targetNames = Object.keys(sentiment.targets);
-    const scores = targetNames.map(t => sentiment.targets[t].score);
-    const colors = scores.map(s => getScoreColor(s));
+  // Build timeline chart data
+  const getTimelineData = (timeline) => {
+    if (!timeline || timeline.length === 0) return null;
 
     return {
-      labels: targetNames,
-      datasets: [{
-        label: 'Sentiment Score',
-        data: scores,
-        backgroundColor: colors,
-        borderColor: colors,
-        borderWidth: 1
-      }]
+      labels: timeline.map(t => t.period),
+      datasets: [
+        {
+          label: 'Sentiment Score',
+          data: timeline.map(t => t.score),
+          borderColor: '#2196f3',
+          backgroundColor: 'rgba(33, 150, 243, 0.1)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 6,
+          pointBackgroundColor: timeline.map(t => getScoreColor(t.score)),
+        }
+      ]
     };
   };
 
-  // Get evidence display - handles both string and object formats
+  // Timeline chart options
+  const timelineOptions = {
+    responsive: true,
+    plugins: {
+      title: {
+        display: true,
+        text: 'Sentiment Over Time',
+        font: { size: 16 }
+      },
+      legend: {
+        display: false
+      }
+    },
+    scales: {
+      y: {
+        min: -1,
+        max: 1,
+        title: {
+          display: true,
+          text: 'Sentiment Score'
+        }
+      },
+      x: {
+        title: {
+          display: true,
+          text: 'Time Period'
+        }
+      }
+    }
+  };
+
+  // Render evidence with period
   const renderEvidence = (evidence) => {
     if (!evidence || evidence.length === 0) {
-      return <p className="no-evidence">No evidence quotes found</p>;
+      return <p className="no-evidence">No evidence quotes available</p>;
     }
 
     return evidence.map((ev, i) => {
-      // Handle string format: "quote text"
-      if (typeof ev === 'string') {
-        return (
-          <div key={i} className="evidence-item">
-            <blockquote>"{ev}"</blockquote>
-          </div>
-        );
-      }
-      
-      // Handle object format: {quote, source, date, sentiment}
-      const sentimentClass = ev.sentiment === 'positive' ? 'positive' : 
-                            ev.sentiment === 'negative' ? 'negative' : '';
+      const sentimentClass = ev.sentiment === 'positive' ? 'evidence-positive' : 
+                            ev.sentiment === 'negative' ? 'evidence-negative' : '';
       
       return (
         <div key={i} className={`evidence-item ${sentimentClass}`}>
-          <blockquote>"{ev.quote}"</blockquote>
-          {(ev.source || ev.date) && (
-            <div className="evidence-source">
-              — {ev.source || 'Unknown source'} {ev.date && ev.date !== 'Unknown' ? `(${ev.date})` : ''}
-              {ev.sentiment && <span className={`sentiment-tag ${ev.sentiment}`}>{ev.sentiment}</span>}
-            </div>
-          )}
+          <blockquote>"{typeof ev === 'string' ? ev : ev.quote}"</blockquote>
+          <div className="evidence-meta">
+            {ev.period && <span className="evidence-period">{ev.period}</span>}
+            {ev.sentiment && <span className={`sentiment-tag ${ev.sentiment}`}>{ev.sentiment}</span>}
+          </div>
         </div>
       );
     });
   };
 
-  // Render aspects (positive/negative)
-  const renderAspects = (aspects, type) => {
-    if (!aspects || aspects.length === 0) return null;
-    
+  // Render timeline details
+  const renderTimelineDetails = (timeline) => {
+    if (!timeline || timeline.length === 0) return null;
+
     return (
-      <div className={`aspects ${type}`}>
-        <strong>{type === 'positive' ? '✓ Positive Aspects:' : '✗ Negative Aspects:'}</strong>
-        <ul>
-          {aspects.map((aspect, i) => (
-            <li key={i}>{aspect}</li>
+      <div className="timeline-details">
+        <h4>Period Breakdown</h4>
+        <div className="period-grid">
+          {timeline.map((period, i) => (
+            <div key={i} className="period-card" style={{ borderLeftColor: getScoreColor(period.score) }}>
+              <div className="period-header">
+                <strong>{period.period}</strong>
+                <span className="period-score" style={{ color: getScoreColor(period.score) }}>
+                  {period.score > 0 ? '+' : ''}{period.score}
+                </span>
+              </div>
+              <div className="period-stats">
+                <span>{period.article_count} articles</span>
+                <span>{period.mention_count} mentions</span>
+              </div>
+              {period.themes && period.themes.length > 0 && (
+                <div className="period-themes">
+                  {period.themes.slice(0, 3).map((theme, j) => (
+                    <span key={j} className="theme-tag">{theme}</span>
+                  ))}
+                </div>
+              )}
+              {period.reasoning && (
+                <p className="period-reasoning">{period.reasoning}</p>
+              )}
+            </div>
           ))}
-        </ul>
+        </div>
       </div>
     );
   };
 
-  const sentiment = result ? parseSentiment(result.sentiment_analysis) : null;
+  const sentiment = result?.sentiment_analysis ? parseSentiment(result.sentiment_analysis) : null;
 
   return (
     <div className="App">
-      <h1>Syria Sentiment Analyzer</h1>
-      <p className="subtitle">Analyzing Arabic articles from Syrian Dialogue Center</p>
+      <h1>🇸🇾 Syria Sentiment Analyzer</h1>
+      <p className="subtitle">Comprehensive timeline analysis of Syrian Dialogue Center articles</p>
 
       <div className="input-section">
         <label>Enter targets (comma separated):</label>
@@ -176,13 +220,13 @@ function App() {
           type="text"
           value={targets}
           onChange={(e) => setTargets(e.target.value)}
-          placeholder="الأسد, روسيا, أمريكا, المعارضة"
+          placeholder="الأسد, روسيا, أمريكا, هتش"
         />
         <button onClick={runAnalysis} disabled={loading}>
-          {loading ? 'Analyzing...' : 'Run Analysis'}
+          {loading ? 'Analyzing...' : 'Analyze All Articles'}
         </button>
         <p className="hint">
-          Try: Assad, الأسد, Russia, روسيا, Iran, إيران, Turkey, تركيا
+          Examples: الأسد, النظام, روسيا, أمريكا, إيران, تركيا, هتش, الجولاني, قسد
         </p>
       </div>
 
@@ -190,89 +234,83 @@ function App() {
 
       {loading && (
         <div className="loading">
-          <p>Analyzing articles... This may take a moment.</p>
+          <div className="spinner"></div>
+          <p>Scanning ALL articles...</p>
+          <p className="loading-sub">Analyzing sentiment across all time periods</p>
         </div>
       )}
 
-      {sentiment && (
+      {sentiment && sentiment.targets && (
         <div className="results">
           
-          {/* Chart */}
-          {getChartData() && (
-            <div className="chart-container">
-              <Bar
-                data={getChartData()}
-                options={{
-                  responsive: true,
-                  plugins: {
-                    title: {
-                      display: true,
-                      text: 'Sentiment by Target'
-                    },
-                    legend: {
-                      display: false
-                    }
-                  },
-                  scales: {
-                    y: {
-                      min: -1,
-                      max: 1,
-                      title: {
-                        display: true,
-                        text: 'Sentiment Score'
-                      }
-                    }
-                  }
-                }}
-              />
-            </div>
-          )}
-
-          {/* Details for each target */}
-          <div className="targets-section">
-            <h2>Analysis Details</h2>
-            
-            {Object.entries(sentiment.targets).map(([target, data]) => (
-              <div key={target} className="target-card">
-                <div className="target-header">
-                  <h3>{target}</h3>
-                  <div className="header-badges">
-                    <span 
-                      className="score-badge"
-                      style={{ background: getScoreColor(data.score) }}
-                    >
-                      {data.sentiment} ({data.score})
+          {Object.entries(sentiment.targets).map(([target, data]) => (
+            <div key={target} className="target-section">
+              
+              {/* Header */}
+              <div className="target-header-main">
+                <h2>{target}</h2>
+                <div className="overall-stats">
+                  <span 
+                    className="overall-score"
+                    style={{ background: getScoreColor(data.overall_score || data.score || 0) }}
+                  >
+                    {data.overall_sentiment || data.sentiment} ({data.overall_score || data.score})
+                  </span>
+                  {data.trend && (
+                    <span className="trend-badge">
+                      {getTrendIcon(data.trend)} {data.trend}
                     </span>
-                    {data.confidence && (
-                      <span className="confidence-badge">
-                        Confidence: {Math.round(data.confidence * 100)}%
-                      </span>
-                    )}
-                    {data.article_count && (
-                      <span className="article-count-badge">
-                        {data.article_count} articles
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="reasoning">
-                  <strong>Reasoning:</strong> {data.reasoning || 'No reasoning provided'}
-                </div>
-
-                {/* Positive and Negative Aspects */}
-                <div className="aspects-container">
-                  {renderAspects(data.positive_aspects, 'positive')}
-                  {renderAspects(data.negative_aspects, 'negative')}
-                </div>
-
-                <div className="evidence-section">
-                  <strong>Evidence:</strong>
-                  {renderEvidence(data.evidence)}
+                  )}
+                  <span className="stats-badge">
+                    📄 {data.total_articles || data.article_count} articles
+                  </span>
+                  {data.total_mentions && (
+                    <span className="stats-badge">
+                      🔍 {data.total_mentions} mentions
+                    </span>
+                  )}
                 </div>
               </div>
-            ))}
-          </div>
+
+              {/* Timeline Chart */}
+              {data.timeline && data.timeline.length > 1 && (
+                <div className="chart-container">
+                  <Line 
+                    data={getTimelineData(data.timeline)} 
+                    options={timelineOptions}
+                  />
+                </div>
+              )}
+
+              {/* Summary */}
+              <div className="reasoning-section">
+                <h4>📊 Analysis Summary</h4>
+                <p>{data.reasoning}</p>
+              </div>
+
+              {/* Key themes */}
+              {data.key_themes && data.key_themes.length > 0 && (
+                <div className="themes-section">
+                  <h4>🏷️ Key Themes</h4>
+                  <div className="themes-list">
+                    {data.key_themes.map((theme, i) => (
+                      <span key={i} className="theme-tag">{theme}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Period breakdown */}
+              {renderTimelineDetails(data.timeline)}
+
+              {/* Evidence */}
+              <div className="evidence-section">
+                <h4>📝 Evidence Quotes</h4>
+                {renderEvidence(data.evidence)}
+              </div>
+
+            </div>
+          ))}
         </div>
       )}
     </div>
