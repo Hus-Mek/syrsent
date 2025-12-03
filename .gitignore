@@ -9,3 +9,4 @@ data/*.json
 .idea/ 
 .vscode/ 
 venv/
+chroma_db/
