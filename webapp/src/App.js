@@ -13,6 +13,7 @@ import {
   Filler
 } from 'chart.js';
 import { Line, Bar } from 'react-chartjs-2';
+import RelationshipMap from './RelationshipMap';
 
 ChartJS.register(
   CategoryScale,
@@ -26,7 +27,10 @@ ChartJS.register(
   Filler
 );
 
+const API_BASE = 'https://hussssa-syrsenthf.hf.space';
+
 function App() {
+  const [activeTab, setActiveTab] = useState('sentiment');
   const [targets, setTargets] = useState('');
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -45,7 +49,7 @@ function App() {
     const targetList = targets.split(',').map(t => t.trim()).filter(t => t);
 
     try {
-      const response = await fetch('https://hussssa-syrsenthf.hf.space/api/analyze', {
+      const response = await fetch(`${API_BASE}/api/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targets: targetList })
@@ -148,7 +152,7 @@ function App() {
     }
   };
 
-  // Render evidence with period and article
+  // Render evidence with period
   const renderEvidence = (evidence) => {
     if (!evidence || evidence.length === 0) {
       return <p className="no-evidence">No evidence quotes available</p>;
@@ -162,49 +166,6 @@ function App() {
         <div key={i} className={`evidence-item ${sentimentClass}`}>
           <blockquote>"{typeof ev === 'string' ? ev : ev.quote}"</blockquote>
           <div className="evidence-meta">
-            {ev.article && <span className="evidence-article">📄 {ev.article}</span>}
-            {ev.period && <span className="evidence-period">{ev.period}</span>}
-            {ev.sentiment && <span className={`sentiment-tag ${ev.sentiment}`}>{ev.sentiment}</span>}
-          </div>
-        </div>
-      );
-    });
-  };
-
-  // Render evidence in period cards (compact version)
-  const renderPeriodEvidence = (evidence) => {
-    if (!evidence || evidence.length === 0) {
-      return null;
-    }
-
-    return (
-      <div className="period-evidence">
-        <strong>Key Quotes:</strong>
-        {evidence.slice(0, 2).map((ev, i) => (
-          <div key={i} className={`period-evidence-item sentiment-${ev.sentiment}`}>
-            <p className="period-quote">"{typeof ev === 'string' ? ev : ev.quote}"</p>
-            {ev.article && <span className="period-article">📄 {ev.article}</span>}
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  // Render evidence with period and article (main section)
-  const renderMainEvidence = (evidence) => {
-    if (!evidence || evidence.length === 0) {
-      return <p className="no-evidence">No evidence quotes available</p>;
-    }
-
-    return evidence.map((ev, i) => {
-      const sentimentClass = ev.sentiment === 'positive' ? 'evidence-positive' : 
-                            ev.sentiment === 'negative' ? 'evidence-negative' : '';
-      
-      return (
-        <div key={i} className={`evidence-item ${sentimentClass}`}>
-          <blockquote>"{typeof ev === 'string' ? ev : ev.quote}"</blockquote>
-          <div className="evidence-meta">
-            {ev.article && <span className="evidence-article">📄 {ev.article}</span>}
             {ev.period && <span className="evidence-period">{ev.period}</span>}
             {ev.sentiment && <span className={`sentiment-tag ${ev.sentiment}`}>{ev.sentiment}</span>}
           </div>
@@ -243,7 +204,6 @@ function App() {
               {period.reasoning && (
                 <p className="period-reasoning">{period.reasoning}</p>
               )}
-              {period.evidence && period.evidence.length > 0 && renderPeriodEvidence(period.evidence)}
             </div>
           ))}
         </div>
@@ -256,33 +216,52 @@ function App() {
   return (
     <div className="App">
       <h1>🇸🇾 Syria Sentiment Analyzer</h1>
-      <p className="subtitle">Comprehensive timeline analysis of Syrian Dialogue Center articles</p>
+      <p className="subtitle">Comprehensive analysis of Syrian Dialogue Center articles</p>
 
-      <div className="input-section">
-        <label>Enter targets (comma separated):</label>
-        <input
-          type="text"
-          value={targets}
-          onChange={(e) => setTargets(e.target.value)}
-          placeholder="الأسد, روسيا, أمريكا, هتش"
-        />
-        <button onClick={runAnalysis} disabled={loading}>
-          {loading ? 'Analyzing...' : 'Analyze All Articles'}
+      {/* Tab Navigation */}
+      <div className="tab-navigation">
+        <button 
+          className={`tab-button ${activeTab === 'sentiment' ? 'active' : ''}`}
+          onClick={() => setActiveTab('sentiment')}
+        >
+          📊 Sentiment Timeline
         </button>
-        <p className="hint">
-          Examples: الأسد, النظام, روسيا, أمريكا, إيران, تركيا, هتش, الجولاني, قسد
-        </p>
+        <button 
+          className={`tab-button ${activeTab === 'relationships' ? 'active' : ''}`}
+          onClick={() => setActiveTab('relationships')}
+        >
+          🕸️ Relationship Map
+        </button>
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {/* Sentiment Analysis Tab */}
+      {activeTab === 'sentiment' && (
+        <>
+          <div className="input-section">
+            <label>Enter targets (comma separated):</label>
+            <input
+              type="text"
+              value={targets}
+              onChange={(e) => setTargets(e.target.value)}
+              placeholder="الأسد, روسيا, أمريكا, هتش"
+            />
+            <button onClick={runAnalysis} disabled={loading}>
+              {loading ? 'Analyzing...' : 'Analyze All Articles'}
+            </button>
+            <p className="hint">
+              Examples: الأسد, النظام, روسيا, أمريكا, إيران, تركيا, هتش, الجولاني, قسد
+            </p>
+          </div>
 
-      {loading && (
-        <div className="loading">
-          <div className="spinner"></div>
-          <p>Scanning ALL articles...</p>
-          <p className="loading-sub">Analyzing sentiment across all time periods</p>
-        </div>
-      )}
+          {error && <p className="error">{error}</p>}
+
+          {loading && (
+            <div className="loading">
+              <div className="spinner"></div>
+              <p>Scanning ALL articles...</p>
+              <p className="loading-sub">Analyzing sentiment across all time periods</p>
+            </div>
+          )}
 
       {sentiment && sentiment.targets && (
         <div className="results">
@@ -350,12 +329,19 @@ function App() {
               {/* Evidence */}
               <div className="evidence-section">
                 <h4>📝 Evidence Quotes</h4>
-                {renderMainEvidence(data.evidence)}
+                {renderEvidence(data.evidence)}
               </div>
 
             </div>
           ))}
         </div>
+      )}
+        </>
+      )}
+
+      {/* Relationship Map Tab */}
+      {activeTab === 'relationships' && (
+        <RelationshipMap apiBase={API_BASE} />
       )}
     </div>
   );
