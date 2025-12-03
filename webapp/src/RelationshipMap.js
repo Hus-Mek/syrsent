@@ -1,33 +1,59 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+} from 'chart.js';
+import { Line } from 'react-chartjs-2';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+);
 
 // Relationship type colors
 const RELATIONSHIP_COLORS = {
-  alliance: '#4caf50',    // Green
-  support: '#8bc34a',     // Light green
-  conflict: '#f44336',    // Red
-  tension: '#ff9800',     // Orange
-  opposition: '#ff5722',  // Deep orange
-  negotiation: '#2196f3', // Blue
-  neutral: '#9e9e9e',     // Gray
+  alliance: '#4caf50',
+  support: '#8bc34a',
+  cooperation: '#00bcd4',
+  negotiation: '#2196f3',
+  neutral: '#9e9e9e',
+  tension: '#ff9800',
+  opposition: '#ff5722',
+  conflict: '#f44336',
 };
 
 // Entity type colors
 const ENTITY_COLORS = {
-  government: '#1a237e',  // Dark blue
-  rebel: '#c62828',       // Dark red
-  terrorist: '#000000',   // Black
-  foreign_power: '#4a148c', // Purple
-  militia: '#bf360c',     // Brown
-  unknown: '#616161',     // Gray
+  former_government: '#5c1a1a',
+  current_government: '#1a5c1a',
+  ruling_faction: '#1a3d5c',
+  opposition: '#5c3d1a',
+  armed_faction: '#3d1a5c',
+  terrorist: '#1a1a1a',
+  foreign_power: '#3d3d5c',
+  militia: '#5c1a3d',
+  unknown: '#616161',
 };
 
 function RelationshipMap({ apiBase }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
-  const [selectedEdge, setSelectedEdge] = useState(null);
   const [entities, setEntities] = useState([]);
-  const canvasRef = useRef(null);
+  const [selectedRelationship, setSelectedRelationship] = useState(null);
 
   // Load available entities on mount
   useEffect(() => {
@@ -42,9 +68,10 @@ function RelationshipMap({ apiBase }) {
     setLoading(true);
     setError('');
     setData(null);
+    setSelectedRelationship(null);
 
     try {
-      const response = await fetch(`${apiBase}/api/relationships?min_articles=5`);
+      const response = await fetch(`${apiBase}/api/relationships?min_articles=5&max_pairs=15`);
       if (!response.ok) throw new Error('Failed to build relationship map');
       
       const result = await response.json();
@@ -57,145 +84,202 @@ function RelationshipMap({ apiBase }) {
     setLoading(false);
   };
 
-  // Draw network graph
-  useEffect(() => {
-    if (!data || !canvasRef.current) return;
+  // Get timeline chart data for a relationship
+  const getTimelineChartData = (timeline) => {
+    if (!timeline || timeline.length === 0) return null;
 
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width;
-    const height = canvas.height;
-
-    // Clear
-    ctx.fillStyle = '#f5f7fa';
-    ctx.fillRect(0, 0, width, height);
-
-    const nodes = data.nodes || [];
-    const edges = data.edges || [];
-
-    if (nodes.length === 0) return;
-
-    // Position nodes in a circle
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const radius = Math.min(width, height) * 0.35;
-
-    const nodePositions = {};
-    nodes.forEach((node, i) => {
-      const angle = (2 * Math.PI * i) / nodes.length - Math.PI / 2;
-      nodePositions[node.id] = {
-        x: centerX + radius * Math.cos(angle),
-        y: centerY + radius * Math.sin(angle),
-        ...node
+    const relationshipToScore = (type) => {
+      const scores = {
+        alliance: 1, support: 0.7, cooperation: 0.5,
+        negotiation: 0.2, neutral: 0,
+        tension: -0.3, opposition: -0.6, conflict: -1
       };
-    });
+      return scores[type] || 0;
+    };
 
-    // Draw edges
-    edges.forEach(edge => {
-      const source = nodePositions[edge.source];
-      const target = nodePositions[edge.target];
-      
-      if (!source || !target) return;
+    return {
+      labels: timeline.map(t => t.period),
+      datasets: [{
+        label: 'Relationship Score',
+        data: timeline.map(t => relationshipToScore(t.relationship_type)),
+        borderColor: '#2196f3',
+        backgroundColor: 'rgba(33, 150, 243, 0.1)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 8,
+        pointBackgroundColor: timeline.map(t => RELATIONSHIP_COLORS[t.relationship_type] || '#9e9e9e'),
+      }]
+    };
+  };
 
-      const color = RELATIONSHIP_COLORS[edge.type] || '#9e9e9e';
-      const lineWidth = Math.max(1, edge.strength * 5);
+  const timelineOptions = {
+    responsive: true,
+    plugins: {
+      title: { display: true, text: 'Relationship Evolution Over Time' },
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: (context) => {
+            const idx = context.dataIndex;
+            const timeline = selectedRelationship?.timeline || [];
+            if (timeline[idx]) {
+              return `${timeline[idx].relationship_type} (${timeline[idx].article_count} articles)`;
+            }
+            return '';
+          }
+        }
+      }
+    },
+    scales: {
+      y: {
+        min: -1.2,
+        max: 1.2,
+        title: { display: true, text: 'Relationship (Conflict ← → Alliance)' },
+        ticks: {
+          callback: (value) => {
+            if (value >= 0.7) return 'Alliance';
+            if (value >= 0.3) return 'Support';
+            if (value >= -0.3) return 'Neutral';
+            if (value >= -0.7) return 'Tension';
+            return 'Conflict';
+          }
+        }
+      },
+      x: { title: { display: true, text: 'Time Period' } }
+    }
+  };
 
-      ctx.beginPath();
-      ctx.strokeStyle = color;
-      ctx.lineWidth = lineWidth;
-      ctx.moveTo(source.x, source.y);
-      ctx.lineTo(target.x, target.y);
-      ctx.stroke();
-
-      // Draw relationship label at midpoint
-      const midX = (source.x + target.x) / 2;
-      const midY = (source.y + target.y) / 2;
-      
-      ctx.fillStyle = color;
-      ctx.font = '10px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(edge.type, midX, midY - 5);
-    });
-
-    // Draw nodes
-    Object.values(nodePositions).forEach(node => {
-      const color = ENTITY_COLORS[node.type] || '#616161';
-      
-      // Circle
-      ctx.beginPath();
-      ctx.fillStyle = color;
-      ctx.arc(node.x, node.y, 20, 0, 2 * Math.PI);
-      ctx.fill();
-
-      // Border
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      // Label
-      ctx.fillStyle = '#333';
-      ctx.font = 'bold 12px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(node.name_en, node.x, node.y + 35);
-      
-      // Arabic name
-      ctx.font = '11px sans-serif';
-      ctx.fillText(node.id, node.x, node.y + 48);
-    });
-
-  }, [data]);
-
-  // Render relationship details
-  const renderEdgeDetails = (edge) => (
-    <div className="edge-details">
-      <h4>{edge.source_en} ↔ {edge.target_en}</h4>
-      <div className="edge-meta">
-        <span 
-          className="relationship-type"
-          style={{ background: RELATIONSHIP_COLORS[edge.type] }}
-        >
-          {edge.type}
-        </span>
-        <span className="strength">Strength: {(edge.strength * 100).toFixed(0)}%</span>
-        <span className="articles">{edge.article_count} articles</span>
-      </div>
-      
-      <p className="description">{edge.description}</p>
-      
-      {edge.themes && edge.themes.length > 0 && (
-        <div className="themes">
-          <strong>Key themes:</strong>
-          {edge.themes.map((theme, i) => (
-            <span key={i} className="theme-tag">{theme}</span>
-          ))}
+  // Render relationship card
+  const renderRelationshipCard = (rel, index) => {
+    const isSelected = selectedRelationship === rel;
+    
+    return (
+      <div 
+        key={index}
+        className={`relationship-card ${isSelected ? 'selected' : ''}`}
+        onClick={() => setSelectedRelationship(isSelected ? null : rel)}
+      >
+        <div className="relationship-header">
+          <div className="entities-pair">
+            <span className="entity-name" style={{ borderColor: ENTITY_COLORS[rel.source_info?.type] }}>
+              {rel.source_info?.name_en}
+              <small>{rel.source_info?.name_ar}</small>
+            </span>
+            <span className="relationship-arrow">↔</span>
+            <span className="entity-name" style={{ borderColor: ENTITY_COLORS[rel.target_info?.type] }}>
+              {rel.target_info?.name_en}
+              <small>{rel.target_info?.name_ar}</small>
+            </span>
+          </div>
+          <div className="relationship-badges">
+            <span 
+              className="type-badge"
+              style={{ background: RELATIONSHIP_COLORS[rel.current_relationship] }}
+            >
+              {rel.current_relationship}
+            </span>
+            <span className="trend-badge">
+              {rel.trend === 'improving' ? '📈' : rel.trend === 'deteriorating' ? '📉' : '➡️'}
+              {rel.trend}
+            </span>
+          </div>
         </div>
-      )}
-
-      {edge.evidence && edge.evidence.length > 0 && (
-        <div className="evidence">
-          <strong>Evidence:</strong>
-          {edge.evidence.slice(0, 3).map((ev, i) => (
-            <blockquote key={i}>
-              "{ev.quote}"
-              <cite>— {ev.date}</cite>
-            </blockquote>
-          ))}
+        
+        <div className="relationship-stats">
+          <span>📄 {rel.total_articles} articles</span>
+          <span>📅 {rel.periods_analyzed} periods</span>
         </div>
-      )}
 
-      <div className="evolution">
-        <strong>Trend:</strong> {edge.evolution}
+        {isSelected && rel.timeline && (
+          <div className="relationship-detail" onClick={(e) => e.stopPropagation()}>
+            {/* Timeline Chart */}
+            {rel.timeline.length > 1 && (
+              <div className="timeline-chart">
+                <Line data={getTimelineChartData(rel.timeline)} options={timelineOptions} />
+              </div>
+            )}
+
+            {/* Period Breakdown */}
+            <div className="periods-breakdown">
+              <h4>📅 Period by Period Analysis</h4>
+              {rel.timeline.map((period, i) => (
+                <div key={i} className="period-item" style={{ borderLeftColor: RELATIONSHIP_COLORS[period.relationship_type] }}>
+                  <div className="period-header">
+                    <strong>{period.period}</strong>
+                    <span className="period-type" style={{ background: RELATIONSHIP_COLORS[period.relationship_type] }}>
+                      {period.relationship_type}
+                    </span>
+                    <span className="period-count">{period.article_count} articles</span>
+                  </div>
+                  
+                  {period.description && (
+                    <p className="period-description">{period.description}</p>
+                  )}
+                  
+                  {period.key_events && period.key_events.length > 0 && (
+                    <div className="period-events">
+                      <strong>Key Events:</strong>
+                      <ul>
+                        {period.key_events.map((event, j) => (
+                          <li key={j}>{event}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Evidence with Article Links */}
+                  {period.evidence && period.evidence.length > 0 && (
+                    <div className="period-evidence">
+                      <strong>Evidence:</strong>
+                      {period.evidence.map((ev, j) => (
+                        <div key={j} className="evidence-quote">
+                          <blockquote>"{ev.quote}"</blockquote>
+                          {ev.interpretation && <p className="interpretation">{ev.interpretation}</p>}
+                          {ev.article_url && (
+                            <a href={ev.article_url} target="_blank" rel="noopener noreferrer" className="article-link">
+                              📰 {ev.article_title || 'View Article'}
+                            </a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Source Articles */}
+                  {period.articles && period.articles.length > 0 && (
+                    <div className="period-articles">
+                      <strong>Source Articles:</strong>
+                      <ul>
+                        {period.articles.map((art, j) => (
+                          <li key={j}>
+                            <a href={art.url} target="_blank" rel="noopener noreferrer">
+                              {art.title}
+                            </a>
+                            <small> ({art.date})</small>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="relationship-map">
       <div className="map-header">
         <h2>🕸️ Relationship Map</h2>
-        <p>How the Syrian Dialogue Center portrays relationships between factions</p>
-        <button onClick={buildMap} disabled={loading}>
-          {loading ? 'Building map...' : 'Build Relationship Map'}
+        <p>Track how relationships between Syrian political entities evolve over time</p>
+        <p className="note">
+          <strong>Note:</strong> Distinguishes between Assad Regime (pre-Dec 2024) and New Syrian Government (post-Dec 2024)
+        </p>
+        <button onClick={buildMap} disabled={loading} className="build-button">
+          {loading ? 'Building map... (this takes a few minutes)' : 'Build Relationship Map'}
         </button>
       </div>
 
@@ -205,7 +289,7 @@ function RelationshipMap({ apiBase }) {
         <div className="loading">
           <div className="spinner"></div>
           <p>Analyzing relationships across all articles...</p>
-          <p className="loading-sub">This may take a few minutes</p>
+          <p className="loading-sub">Building timelines for each entity pair</p>
         </div>
       )}
 
@@ -214,17 +298,9 @@ function RelationshipMap({ apiBase }) {
           {/* Stats */}
           <div className="map-stats">
             <span>📄 {data.stats?.total_articles} articles analyzed</span>
-            <span>🔗 {data.stats?.relationships_analyzed} relationships found</span>
+            <span>🔗 {data.stats?.relationships_analyzed} relationships mapped</span>
             <span>👥 {data.nodes?.length} entities</span>
           </div>
-
-          {/* Canvas for network visualization */}
-          <canvas 
-            ref={canvasRef} 
-            width={800} 
-            height={600}
-            className="network-canvas"
-          />
 
           {/* Legend */}
           <div className="legend">
@@ -239,35 +315,15 @@ function RelationshipMap({ apiBase }) {
             </div>
           </div>
 
-          {/* Relationship list */}
+          {/* Relationships List */}
           <div className="relationships-list">
-            <h3>Relationship Details</h3>
-            {data.edges?.map((edge, i) => (
-              <div 
-                key={i} 
-                className="relationship-card"
-                onClick={() => setSelectedEdge(selectedEdge === i ? null : i)}
-              >
-                <div className="relationship-header">
-                  <span className="entities">
-                    {edge.source_en} ↔ {edge.target_en}
-                  </span>
-                  <span 
-                    className="type-badge"
-                    style={{ background: RELATIONSHIP_COLORS[edge.type] }}
-                  >
-                    {edge.type}
-                  </span>
-                </div>
-                
-                {selectedEdge === i && renderEdgeDetails(edge)}
-              </div>
-            ))}
+            <h3>Entity Relationships (click to expand)</h3>
+            {data.relationships?.map((rel, i) => renderRelationshipCard(rel, i))}
           </div>
         </div>
       )}
 
-      {/* Entity reference */}
+      {/* Entity Reference */}
       {entities.length > 0 && !data && (
         <div className="entities-reference">
           <h3>Tracked Entities</h3>
@@ -279,8 +335,14 @@ function RelationshipMap({ apiBase }) {
                 style={{ borderLeftColor: ENTITY_COLORS[entity.type] }}
               >
                 <strong>{entity.name_en}</strong>
-                <span className="arabic">{entity.id}</span>
-                <span className="type">{entity.type}</span>
+                <span className="arabic">{entity.name_ar}</span>
+                <span className="type">{entity.type?.replace('_', ' ')}</span>
+                {entity.active_period?.end && (
+                  <span className="period-note">Until {entity.active_period.end}</span>
+                )}
+                {entity.active_period?.start && (
+                  <span className="period-note">From {entity.active_period.start}</span>
+                )}
               </div>
             ))}
           </div>

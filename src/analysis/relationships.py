@@ -1,13 +1,13 @@
 """
-Relationship Mapper
-===================
+Relationship Mapper v2
+======================
 
-Extracts and maps relationships between entities (factions, countries, actors)
-from Syrian Dialogue Center articles.
+Tracks relationships between Syrian political entities OVER TIME.
+Differentiates between:
+- Assad Regime (pre-December 2024)
+- New Syrian Government / HTS-led (post-December 2024)
 
-Uses DeepSeek R1 for reasoning about complex relationships.
-
-Output: Network graph data + relationship timeline
+Provides article references and timeline evolution.
 """
 
 import json
@@ -17,78 +17,127 @@ from groq import Groq
 import os
 
 # ============================================================
-# ENTITY DEFINITIONS
+# ENTITY DEFINITIONS - Updated for political transition
 # ============================================================
 
-# Core entities we're tracking
 ENTITIES = {
-    # Syrian Government
-    "النظام": {"name_en": "Assad Regime", "type": "government", "aliases": ["الأسد", "بشار", "نظام الأسد", "النظام السوري"]},
+    # OLD REGIME (pre-Dec 2024)
+    "نظام_الأسد": {
+        "name_en": "Assad Regime",
+        "name_ar": "نظام الأسد",
+        "type": "former_government",
+        "active_period": {"end": "2024-12"},
+        "aliases": ["الأسد", "بشار", "نظام الأسد", "النظام السوري", "النظام البائد", "الأسدي", "بشار الأسد", "النظام"]
+    },
     
-    # Opposition / Rebel Groups
-    "هتش": {"name_en": "HTS", "type": "rebel", "aliases": ["هيئة تحرير الشام", "تحرير الشام", "الجولاني", "الشرع", "أحمد الشرع"]},
-    "المعارضة": {"name_en": "Opposition", "type": "rebel", "aliases": ["الثوار", "الفصائل", "الجيش الحر", "فصائل المعارضة"]},
-    "قسد": {"name_en": "SDF", "type": "rebel", "aliases": ["قوات سوريا الديمقراطية", "الأكراد", "الكرد", "الإدارة الذاتية", "pyd", "ypg"]},
-    "داعش": {"name_en": "ISIS", "type": "terrorist", "aliases": ["الدولة الإسلامية", "تنظيم الدولة", "داعش"]},
+    # NEW GOVERNMENT (post-Dec 2024)
+    "الحكومة_الجديدة": {
+        "name_en": "New Syrian Government",
+        "name_ar": "الحكومة السورية الجديدة",
+        "type": "current_government", 
+        "active_period": {"start": "2024-12"},
+        "aliases": ["الحكومة الجديدة", "الحكومة السورية", "الحكومة الانتقالية", "الإدارة الجديدة", "حكومة دمشق"]
+    },
     
-    # Foreign Powers
-    "روسيا": {"name_en": "Russia", "type": "foreign_power", "aliases": ["الروس", "موسكو", "بوتين", "الروسي"]},
-    "أمريكا": {"name_en": "USA", "type": "foreign_power", "aliases": ["الولايات المتحدة", "واشنطن", "الأمريكي", "الإدارة الأمريكية"]},
-    "إيران": {"name_en": "Iran", "type": "foreign_power", "aliases": ["طهران", "الإيراني", "الحرس الثوري", "حزب الله"]},
-    "تركيا": {"name_en": "Turkey", "type": "foreign_power", "aliases": ["أنقرة", "أردوغان", "التركي"]},
-    "إسرائيل": {"name_en": "Israel", "type": "foreign_power", "aliases": ["الاحتلال", "الإسرائيلي", "تل أبيب", "الصهيوني"]},
+    # HTS / Jolani / Sharaa
+    "هتش": {
+        "name_en": "HTS / Al-Sharaa",
+        "name_ar": "هيئة تحرير الشام",
+        "type": "ruling_faction",
+        "aliases": ["هيئة تحرير الشام", "تحرير الشام", "الجولاني", "الشرع", "أحمد الشرع", "الهيئة", "جبهة النصرة", "أبو محمد الجولاني"]
+    },
     
-    # Regional
-    "حزب الله": {"name_en": "Hezbollah", "type": "militia", "aliases": ["حزب الله اللبناني"]},
-    "الميليشيات": {"name_en": "Pro-Iran Militias", "type": "militia", "aliases": ["الميليشيات الإيرانية", "الميليشيات الشيعية"]},
+    # Opposition (general)
+    "المعارضة": {
+        "name_en": "Syrian Opposition",
+        "name_ar": "المعارضة السورية",
+        "type": "opposition",
+        "aliases": ["الثوار", "الفصائل", "الجيش الحر", "فصائل المعارضة", "الجيش الوطني", "المعارضة السورية"]
+    },
+    
+    # SDF / Kurds
+    "قسد": {
+        "name_en": "SDF / Kurdish Forces",
+        "name_ar": "قوات سوريا الديمقراطية",
+        "type": "armed_faction",
+        "aliases": ["قوات سوريا الديمقراطية", "الأكراد", "الكرد", "الإدارة الذاتية", "ب ي د", "الوحدات الكردية"]
+    },
+    
+    # ISIS
+    "داعش": {
+        "name_en": "ISIS",
+        "name_ar": "داعش",
+        "type": "terrorist",
+        "aliases": ["الدولة الإسلامية", "تنظيم الدولة", "داعش"]
+    },
+    
+    # FOREIGN POWERS
+    "روسيا": {
+        "name_en": "Russia",
+        "name_ar": "روسيا",
+        "type": "foreign_power",
+        "aliases": ["الروس", "موسكو", "بوتين", "الروسي", "الجانب الروسي"]
+    },
+    
+    "أمريكا": {
+        "name_en": "United States",
+        "name_ar": "الولايات المتحدة",
+        "type": "foreign_power",
+        "aliases": ["الولايات المتحدة", "واشنطن", "الأمريكي", "الإدارة الأمريكية", "البيت الأبيض"]
+    },
+    
+    "إيران": {
+        "name_en": "Iran",
+        "name_ar": "إيران",
+        "type": "foreign_power",
+        "aliases": ["طهران", "الإيراني", "الحرس الثوري", "النظام الإيراني"]
+    },
+    
+    "تركيا": {
+        "name_en": "Turkey",
+        "name_ar": "تركيا",
+        "type": "foreign_power",
+        "aliases": ["أنقرة", "أردوغان", "التركي", "الجانب التركي"]
+    },
+    
+    "إسرائيل": {
+        "name_en": "Israel",
+        "name_ar": "إسرائيل",
+        "type": "foreign_power",
+        "aliases": ["الاحتلال", "الإسرائيلي", "تل أبيب", "الصهيوني", "الكيان"]
+    },
+    
+    # Militias
+    "حزب_الله": {
+        "name_en": "Hezbollah",
+        "name_ar": "حزب الله",
+        "type": "militia",
+        "aliases": ["حزب الله", "حزب الله اللبناني", "الحزب"]
+    },
+    
+    "الميليشيات_الإيرانية": {
+        "name_en": "Pro-Iran Militias",
+        "name_ar": "الميليشيات الإيرانية",
+        "type": "militia",
+        "aliases": ["الميليشيات", "الميليشيات الإيرانية", "الميليشيات الشيعية", "الفصائل الموالية لإيران"]
+    },
 }
 
-# Relationship types
-RELATIONSHIP_TYPES = [
-    "alliance",      # تحالف - working together
-    "conflict",      # صراع - actively fighting
-    "tension",       # توتر - strained relations
-    "negotiation",   # تفاوض - in talks
-    "support",       # دعم - one supports another
-    "opposition",    # معارضة - one opposes another
-    "neutral",       # حياد - no clear relationship
-]
-
-
-def get_all_aliases():
-    """Get flat list of all entity aliases for text matching."""
-    all_terms = []
-    for entity_id, info in ENTITIES.items():
-        all_terms.append(entity_id)
-        all_terms.extend(info.get("aliases", []))
-    return all_terms
-
-
-def find_entities_in_text(text):
-    """Find which entities are mentioned in text."""
-    if not text:
-        return set()
-    
-    text_lower = text.lower()
-    found = set()
-    
-    for entity_id, info in ENTITIES.items():
-        # Check main name
-        if entity_id in text:
-            found.add(entity_id)
-            continue
-        
-        # Check aliases
-        for alias in info.get("aliases", []):
-            if alias.lower() in text_lower or alias in text:
-                found.add(entity_id)
-                break
-    
-    return found
+# Relationship types with Arabic equivalents
+RELATIONSHIP_TYPES = {
+    "alliance": {"ar": "تحالف", "color": "#4caf50"},
+    "support": {"ar": "دعم", "color": "#8bc34a"},
+    "conflict": {"ar": "صراع", "color": "#f44336"},
+    "tension": {"ar": "توتر", "color": "#ff9800"},
+    "opposition": {"ar": "معارضة", "color": "#ff5722"},
+    "negotiation": {"ar": "تفاوض", "color": "#2196f3"},
+    "neutral": {"ar": "حياد", "color": "#9e9e9e"},
+    "cooperation": {"ar": "تعاون", "color": "#00bcd4"},
+}
 
 
 def parse_date_to_period(date_str):
-    """Parse Arabic date to YYYY-MM."""
+    """Parse Arabic date to YYYY-MM format."""
     if not date_str:
         return "unknown"
     
@@ -115,6 +164,37 @@ def parse_date_to_period(date_str):
     return f"{year}-{month}"
 
 
+def find_entities_in_text(text, period=None):
+    """
+    Find entities mentioned in text.
+    If period provided, handles regime vs new government based on date.
+    """
+    if not text:
+        return set()
+    
+    found = set()
+    
+    for entity_id, info in ENTITIES.items():
+        # Check if entity is active in this period
+        if period and period != "unknown":
+            active = info.get("active_period", {})
+            if active.get("end") and period > active["end"]:
+                # Entity no longer active (e.g., Assad regime after Dec 2024)
+                # Still detect but will be labeled appropriately
+                pass
+            if active.get("start") and period < active["start"]:
+                # Entity not yet active
+                continue
+        
+        # Check aliases
+        for alias in info.get("aliases", []):
+            if alias in text:
+                found.add(entity_id)
+                break
+    
+    return found
+
+
 def load_articles(filepath="data/sydialogue_ar_publications.json"):
     """Load all articles."""
     with open(filepath, "r", encoding="utf-8") as f:
@@ -122,176 +202,294 @@ def load_articles(filepath="data/sydialogue_ar_publications.json"):
 
 
 def find_articles_with_entity_pairs(articles):
-    """
-    Find all articles that mention at least 2 entities.
-    These are candidates for relationship extraction.
-    """
-    pair_articles = defaultdict(list)
+    """Find articles mentioning at least 2 entities, grouped by period."""
+    pair_articles = defaultdict(lambda: defaultdict(list))
     
     for article in articles:
         content = article.get("content", "")
         title = article.get("title", "")
         full_text = f"{title}\n{content}"
+        period = parse_date_to_period(article.get("date", ""))
         
-        entities = find_entities_in_text(full_text)
+        entities = find_entities_in_text(full_text, period)
         
         if len(entities) >= 2:
-            # Create pairs
             entity_list = sorted(list(entities))
             for i, e1 in enumerate(entity_list):
                 for e2 in entity_list[i+1:]:
                     pair_key = f"{e1}|{e2}"
-                    pair_articles[pair_key].append({
+                    pair_articles[pair_key][period].append({
                         "title": title,
-                        "content": content[:3000],  # Truncate
+                        "content": content[:2000],
                         "date": article.get("date", ""),
-                        "period": parse_date_to_period(article.get("date", "")),
+                        "period": period,
                         "url": article.get("url", "")
                     })
     
     return pair_articles
 
 
-def analyze_relationship(entity1, entity2, articles, client, max_articles=10):
-    """
-    Analyze relationship between two entities using LLM.
-    Uses DeepSeek R1 for reasoning.
-    """
+def analyze_relationship_period(entity1, entity2, articles, period, client):
+    """Analyze relationship for a specific time period."""
     if not articles:
         return None
     
-    # Get entity info
-    e1_info = ENTITIES.get(entity1, {"name_en": entity1})
-    e2_info = ENTITIES.get(entity2, {"name_en": entity2})
+    e1_info = ENTITIES.get(entity1, {"name_en": entity1, "name_ar": entity1})
+    e2_info = ENTITIES.get(entity2, {"name_en": entity2, "name_ar": entity2})
     
-    # Build context from articles (most recent first)
-    sorted_articles = sorted(articles, key=lambda x: x.get("period", ""), reverse=True)[:max_articles]
-    
+    # Build context with article references
     context_parts = []
-    for art in sorted_articles:
-        context_parts.append(f"[{art['date']}] {art['title']}\n{art['content'][:1000]}")
+    for i, art in enumerate(articles[:8]):  # Max 8 articles per period
+        context_parts.append(f"[Article {i+1}] {art['title']}\nDate: {art['date']}\nURL: {art['url']}\n{art['content'][:800]}")
     
     context = "\n\n---\n\n".join(context_parts)
     
-    prompt = f"""Analyze the relationship between these two entities based on the Arabic articles:
+    # Note about political transition
+    transition_note = ""
+    if period >= "2024-12":
+        transition_note = """
+IMPORTANT CONTEXT: As of December 2024, the Assad regime fell. The new Syrian government is led by former HTS/opposition figures.
+- References to "النظام" (the regime) now typically mean the FORMER Assad regime
+- The new government is led by Ahmed al-Sharaa (formerly known as al-Jolani)
+- Distinguish between references to the old regime vs new government
+"""
+    
+    prompt = f"""Analyze the relationship between these two entities based on Arabic articles from {period}:
 
-ENTITY 1: {entity1} ({e1_info.get('name_en', entity1)}) - {e1_info.get('type', 'unknown')}
-ENTITY 2: {entity2} ({e2_info.get('name_en', entity2)}) - {e2_info.get('type', 'unknown')}
+ENTITY 1: {e1_info.get('name_ar')} ({e1_info.get('name_en')}) - Type: {e1_info.get('type')}
+ENTITY 2: {e2_info.get('name_ar')} ({e2_info.get('name_en')}) - Type: {e2_info.get('type')}
+{transition_note}
 
-Based on the articles, determine:
-1. What is the nature of their relationship?
-2. Is there evidence of alliance, conflict, tension, support, or opposition?
-3. Has the relationship changed over time?
-4. What are the key themes in their interaction?
+Based on these articles from {period}, determine:
+1. The nature of relationship (alliance/conflict/tension/support/opposition/negotiation/neutral/cooperation)
+2. Key events or themes discussed
+3. Direct quotes that illustrate the relationship
+4. Which specific articles support your analysis
 
 ARTICLES:
 {context}
 
-Respond with JSON only:
+Respond with JSON only (no other text):
 {{
-    "entity1": "{entity1}",
-    "entity1_en": "{e1_info.get('name_en', entity1)}",
-    "entity2": "{entity2}",
-    "entity2_en": "{e2_info.get('name_en', entity2)}",
-    "relationship_type": "alliance|conflict|tension|support|opposition|negotiation|neutral",
+    "relationship_type": "alliance|conflict|tension|support|opposition|negotiation|neutral|cooperation",
     "strength": 0.0 to 1.0,
-    "direction": "mutual|e1_to_e2|e2_to_e1",
-    "description": "brief description of relationship",
-    "key_themes": ["theme1", "theme2"],
+    "sentiment": "positive|negative|neutral",
+    "description": "Brief description in English",
+    "description_ar": "وصف مختصر بالعربية",
+    "key_events": ["event1", "event2"],
     "evidence": [
-        {{"quote": "Arabic quote", "date": "date"}}
+        {{
+            "quote": "exact Arabic quote",
+            "article_index": 1,
+            "interpretation": "what this quote shows"
+        }}
     ],
-    "evolution": "stable|improving|deteriorating|fluctuating"
-}}
-
-JSON:"""
+    "article_references": [1, 2, 3]
+}}"""
 
     try:
         response = client.chat.completions.create(
-            model="deepseek-r1-distill-llama-70b",
+            model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.6,
+            temperature=0.3,
             max_tokens=2000
         )
         
         result = response.choices[0].message.content
         
-        # Extract JSON (DeepSeek includes <think> reasoning)
-        # Find JSON after the thinking
+        # Extract JSON
         json_match = re.search(r'\{[\s\S]*\}', result)
         if json_match:
-            return json.loads(json_match.group())
-        
+            parsed = json.loads(json_match.group())
+            
+            # Add article URLs to evidence
+            if parsed.get("evidence"):
+                for ev in parsed["evidence"]:
+                    idx = ev.get("article_index", 1) - 1
+                    if 0 <= idx < len(articles):
+                        ev["article_url"] = articles[idx].get("url", "")
+                        ev["article_title"] = articles[idx].get("title", "")
+            
+            # Add referenced articles
+            parsed["articles"] = []
+            for idx in parsed.get("article_references", []):
+                if 0 < idx <= len(articles):
+                    art = articles[idx-1]
+                    parsed["articles"].append({
+                        "title": art["title"],
+                        "url": art["url"],
+                        "date": art["date"]
+                    })
+            
+            return parsed
+            
     except Exception as e:
-        print(f"Error analyzing {entity1}-{entity2}: {e}")
+        print(f"Error analyzing {entity1}-{entity2} for {period}: {e}")
     
     return None
 
 
-def build_relationship_map(client, articles_path="data/sydialogue_ar_publications.json", min_articles=3):
+def build_relationship_timeline(entity1, entity2, client, articles_path="data/sydialogue_ar_publications.json", min_articles_per_period=2):
     """
-    Build complete relationship map from all articles.
+    Build timeline of relationship between two entities.
+    """
+    articles = load_articles(articles_path)
+    pair_articles = find_articles_with_entity_pairs(articles)
     
-    Returns network graph data and relationship details.
+    # Try both orderings of the pair key
+    pair_key = f"{entity1}|{entity2}"
+    if pair_key not in pair_articles:
+        pair_key = f"{entity2}|{entity1}"
+    
+    if pair_key not in pair_articles:
+        return {"error": f"No articles found discussing both entities"}
+    
+    periods_data = pair_articles[pair_key]
+    
+    # Analyze each period
+    timeline = []
+    all_articles = []
+    
+    for period in sorted(periods_data.keys()):
+        if period == "unknown":
+            continue
+            
+        period_arts = periods_data[period]
+        if len(period_arts) < min_articles_per_period:
+            continue
+        
+        print(f"  Analyzing {period}: {len(period_arts)} articles")
+        
+        analysis = analyze_relationship_period(entity1, entity2, period_arts, period, client)
+        
+        if analysis:
+            timeline.append({
+                "period": period,
+                "article_count": len(period_arts),
+                **analysis
+            })
+            all_articles.extend(period_arts)
+    
+    # Calculate overall trend
+    if len(timeline) >= 2:
+        first_half = timeline[:len(timeline)//2]
+        second_half = timeline[len(timeline)//2:]
+        
+        # Count relationship types
+        def sentiment_score(t):
+            if t in ["alliance", "support", "cooperation"]:
+                return 1
+            elif t in ["conflict", "opposition"]:
+                return -1
+            elif t in ["tension"]:
+                return -0.5
+            return 0
+        
+        first_avg = sum(sentiment_score(t.get("relationship_type", "neutral")) for t in first_half) / len(first_half)
+        second_avg = sum(sentiment_score(t.get("relationship_type", "neutral")) for t in second_half) / len(second_half)
+        
+        if second_avg > first_avg + 0.3:
+            trend = "improving"
+        elif second_avg < first_avg - 0.3:
+            trend = "deteriorating"
+        else:
+            trend = "stable"
+    else:
+        trend = "insufficient_data"
+    
+    e1_info = ENTITIES.get(entity1, {})
+    e2_info = ENTITIES.get(entity2, {})
+    
+    return {
+        "entity1": {
+            "id": entity1,
+            "name_en": e1_info.get("name_en", entity1),
+            "name_ar": e1_info.get("name_ar", entity1),
+            "type": e1_info.get("type", "unknown")
+        },
+        "entity2": {
+            "id": entity2,
+            "name_en": e2_info.get("name_en", entity2),
+            "name_ar": e2_info.get("name_ar", entity2),
+            "type": e2_info.get("type", "unknown")
+        },
+        "trend": trend,
+        "periods_analyzed": len(timeline),
+        "total_articles": len(all_articles),
+        "timeline": timeline
+    }
+
+
+def build_relationship_map(client, articles_path="data/sydialogue_ar_publications.json", min_articles=5, max_pairs=20):
+    """
+    Build relationship map with timeline for top entity pairs.
     """
     print("\n" + "="*60)
-    print("BUILDING RELATIONSHIP MAP")
+    print("BUILDING RELATIONSHIP MAP WITH TIMELINES")
     print("="*60)
     
-    # Load articles
     articles = load_articles(articles_path)
     print(f"Loaded {len(articles)} articles")
     
-    # Find entity pairs
     pair_articles = find_articles_with_entity_pairs(articles)
     print(f"Found {len(pair_articles)} entity pairs")
     
-    # Filter to pairs with enough articles
-    significant_pairs = {k: v for k, v in pair_articles.items() if len(v) >= min_articles}
-    print(f"Pairs with {min_articles}+ articles: {len(significant_pairs)}")
+    # Count total articles per pair
+    pair_totals = {}
+    for pair_key, periods in pair_articles.items():
+        total = sum(len(arts) for arts in periods.values())
+        if total >= min_articles:
+            pair_totals[pair_key] = total
     
-    # Analyze each pair
+    print(f"Pairs with {min_articles}+ articles: {len(pair_totals)}")
+    
+    # Sort by article count, take top pairs
+    top_pairs = sorted(pair_totals.items(), key=lambda x: -x[1])[:max_pairs]
+    
     relationships = []
     nodes = set()
     
-    for pair_key, pair_arts in sorted(significant_pairs.items(), key=lambda x: -len(x[1])):
+    for pair_key, total_count in top_pairs:
         entity1, entity2 = pair_key.split("|")
-        print(f"\nAnalyzing: {entity1} <-> {entity2} ({len(pair_arts)} articles)")
+        print(f"\nAnalyzing: {entity1} <-> {entity2} ({total_count} articles)")
         
-        analysis = analyze_relationship(entity1, entity2, pair_arts, client)
+        timeline_data = build_relationship_timeline(entity1, entity2, client, articles_path)
         
-        if analysis:
+        if timeline_data and not timeline_data.get("error"):
             nodes.add(entity1)
             nodes.add(entity2)
+            
+            # Get most recent relationship type
+            recent_type = "neutral"
+            if timeline_data.get("timeline"):
+                recent_type = timeline_data["timeline"][-1].get("relationship_type", "neutral")
             
             relationships.append({
                 "source": entity1,
                 "target": entity2,
-                "source_en": analysis.get("entity1_en", entity1),
-                "target_en": analysis.get("entity2_en", entity2),
-                "type": analysis.get("relationship_type", "neutral"),
-                "strength": analysis.get("strength", 0.5),
-                "direction": analysis.get("direction", "mutual"),
-                "description": analysis.get("description", ""),
-                "themes": analysis.get("key_themes", []),
-                "evidence": analysis.get("evidence", []),
-                "evolution": analysis.get("evolution", "stable"),
-                "article_count": len(pair_arts)
+                "source_info": timeline_data["entity1"],
+                "target_info": timeline_data["entity2"],
+                "current_relationship": recent_type,
+                "trend": timeline_data.get("trend", "stable"),
+                "total_articles": timeline_data.get("total_articles", 0),
+                "periods_analyzed": timeline_data.get("periods_analyzed", 0),
+                "timeline": timeline_data.get("timeline", [])
             })
     
-    # Build nodes with metadata
+    # Build nodes list
     node_list = []
     for node_id in nodes:
         info = ENTITIES.get(node_id, {})
         node_list.append({
             "id": node_id,
             "name_en": info.get("name_en", node_id),
+            "name_ar": info.get("name_ar", node_id),
             "type": info.get("type", "unknown")
         })
     
     return {
         "nodes": node_list,
-        "edges": relationships,
+        "relationships": relationships,
         "stats": {
             "total_articles": len(articles),
             "entity_pairs_found": len(pair_articles),
@@ -300,58 +498,24 @@ def build_relationship_map(client, articles_path="data/sydialogue_ar_publication
     }
 
 
-def get_relationship_timeline(entity1, entity2, client, articles_path="data/sydialogue_ar_publications.json"):
-    """
-    Get how relationship between two entities evolved over time.
-    """
-    articles = load_articles(articles_path)
-    pair_articles = find_articles_with_entity_pairs(articles)
-    
-    pair_key = f"{min(entity1, entity2)}|{max(entity1, entity2)}"
-    if pair_key not in pair_articles:
-        # Try reverse
-        pair_key = f"{max(entity1, entity2)}|{min(entity1, entity2)}"
-    
-    if pair_key not in pair_articles:
-        return {"error": f"No articles found discussing both {entity1} and {entity2}"}
-    
-    arts = pair_articles[pair_key]
-    
-    # Group by period
-    by_period = defaultdict(list)
-    for art in arts:
-        by_period[art["period"]].append(art)
-    
-    # Analyze each period
-    timeline = []
-    for period in sorted(by_period.keys()):
-        period_arts = by_period[period]
-        
-        analysis = analyze_relationship(entity1, entity2, period_arts, client, max_articles=5)
-        
-        if analysis:
-            timeline.append({
-                "period": period,
-                "relationship_type": analysis.get("relationship_type"),
-                "strength": analysis.get("strength"),
-                "description": analysis.get("description"),
-                "article_count": len(period_arts)
-            })
-    
-    return {
-        "entity1": entity1,
-        "entity2": entity2,
-        "timeline": timeline
-    }
+def get_entities_list():
+    """Return list of all tracked entities."""
+    return [
+        {
+            "id": entity_id,
+            "name_en": info.get("name_en", entity_id),
+            "name_ar": info.get("name_ar", entity_id),
+            "type": info.get("type", "unknown"),
+            "aliases": info.get("aliases", []),
+            "active_period": info.get("active_period", {})
+        }
+        for entity_id, info in ENTITIES.items()
+    ]
 
 
 if __name__ == "__main__":
     client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
     
-    # Build full map
-    result = build_relationship_map(client, min_articles=5)
-    
-    print("\n" + "="*60)
-    print("RELATIONSHIP MAP RESULTS")
-    print("="*60)
+    # Test single relationship timeline
+    result = build_relationship_timeline("هتش", "تركيا", client)
     print(json.dumps(result, ensure_ascii=False, indent=2))
