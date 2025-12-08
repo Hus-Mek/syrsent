@@ -53,6 +53,7 @@ function App() {
 
     setSentimentLoading(true);
     setError('');
+    setSentimentResult(null); // Clear previous results
 
     const targetList = targets.split(',').map(t => t.trim()).filter(t => t);
 
@@ -66,6 +67,7 @@ function App() {
       if (!response.ok) throw new Error('Analysis failed');
       
       const data = await response.json();
+      console.log("Sentiment response:", data);
       setSentimentResult(data);
     } catch (err) {
       console.error("Sentiment analysis error:", err);
@@ -77,28 +79,29 @@ function App() {
 
   /**
    * RELATIONSHIP MAP
-   * Note: Backend needs to implement POST /api/relationships endpoint
+   * Backend uses GET method with query parameters
    */
   const buildRelationshipMap = async () => {
     setRelationshipLoading(true);
     setError('');
+    setRelationshipData(null); // Clear previous results
 
     try {
-      // Check if endpoint exists
-      const response = await fetch(`${API_BASE}/api/relationships`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+      // GET request with query parameters (not POST!)
+      const response = await fetch(`${API_BASE}/api/relationships?min_articles=5&max_pairs=15`, {
+        method: 'GET'
       });
 
       if (!response.ok) {
-        throw new Error('Relationship mapping not yet implemented on backend');
+        throw new Error(`Failed to build map: ${response.status}`);
       }
       
       const data = await response.json();
+      console.log("Relationship data:", data);
       setRelationshipData(data);
     } catch (err) {
       console.error("Relationship map error:", err);
-      setError('Relationship mapping feature coming soon. Backend endpoint needs to be implemented.');
+      setError(`Failed to build relationship map: ${err.message}`);
     }
 
     setRelationshipLoading(false);
@@ -108,6 +111,11 @@ function App() {
   const parseSentiment = (sentimentStr) => {
     if (!sentimentStr) return null;
     try {
+      // Handle if it's already an object
+      if (typeof sentimentStr === 'object') {
+        return sentimentStr;
+      }
+      // Parse if it's a string
       return JSON.parse(sentimentStr);
     } catch (e) {
       console.error("JSON parsing failed:", e);
@@ -117,6 +125,7 @@ function App() {
 
   // Get color class based on score
   const getScoreColorClass = (score) => {
+    if (score === null || score === undefined) return 'neutral';
     if (score > 0.2) return 'positive';
     if (score < -0.2) return 'negative';
     return 'neutral';
@@ -124,6 +133,7 @@ function App() {
 
   // Get hex color for charts
   const getScoreHexColor = (score) => {
+    if (score === null || score === undefined) return '#6b7280';
     if (score > 0.2) return '#10b981';
     if (score < -0.2) return '#ef4444';
     return '#f59e0b';
@@ -137,7 +147,10 @@ function App() {
     if (!sentiment?.targets) return null;
 
     const targetNames = Object.keys(sentiment.targets);
-    const scores = targetNames.map(t => sentiment.targets[t].score);
+    const scores = targetNames.map(t => {
+      const score = sentiment.targets[t].score;
+      return score !== null && score !== undefined ? score : 0;
+    });
     const colors = scores.map(s => getScoreHexColor(s));
 
     return {
@@ -220,7 +233,7 @@ function App() {
           </div>
 
           {/* Results */}
-          {sentiment && (
+          {sentiment && sentiment.targets && (
             <div className="results">
               {/* Chart */}
               {getSentimentChartData() && (
@@ -264,43 +277,59 @@ function App() {
               {/* Target Cards */}
               <div className="targets-section">
                 <h2>Analysis Details</h2>
-                {Object.entries(sentiment.targets).map(([target, data]) => (
-                  <div key={target} className="target-card">
-                    <div className="target-header">
-                      <h3>{target}</h3>
-                      {/* FIX: Check if score exists before calling toFixed */}
-                      {data.score !== undefined && data.score !== null ? (
-                        <span className={`score-badge ${getScoreColorClass(data.score)}`}>
-                          {data.sentiment} ({data.score.toFixed(2)})
-                        </span>
-                      ) : (
-                        <span className="score-badge neutral">
-                          {data.sentiment || 'Unknown'} (N/A)
-                        </span>
+                {Object.entries(sentiment.targets).map(([target, data]) => {
+                  // SAFE DATA EXTRACTION with fallbacks
+                  const targetData = {
+                    sentiment: data.sentiment || data.label || 'Unknown',
+                    score: (data.score !== null && data.score !== undefined) ? data.score : null,
+                    reasoning: data.reasoning || data.analysis || data.explanation || 'No analysis provided',
+                    evidence: data.evidence || data.quotes || data.examples || []
+                  };
+
+                  return (
+                    <div key={target} className="target-card">
+                      <div className="target-header">
+                        <h3>{target}</h3>
+                        {targetData.score !== null ? (
+                          <span className={`score-badge ${getScoreColorClass(targetData.score)}`}>
+                            {targetData.sentiment} ({targetData.score.toFixed(2)})
+                          </span>
+                        ) : (
+                          <span className={`score-badge ${getScoreColorClass(null)}`}>
+                            {targetData.sentiment}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="reasoning">
+                        <strong>Analysis:</strong>
+                        <p>{targetData.reasoning}</p>
+                      </div>
+
+                      {targetData.evidence && targetData.evidence.length > 0 && (
+                        <div className="evidence-section">
+                          <strong>Evidence ({targetData.evidence.length} {targetData.evidence.length === 1 ? 'quote' : 'quotes'}):</strong>
+                          {targetData.evidence.map((ev, i) => {
+                            // SAFE EVIDENCE EXTRACTION with fallbacks
+                            const quote = ev.quote || ev.text || ev.content || 'No quote available';
+                            const source = ev.source || ev.title || ev.article || 'Unknown source';
+                            const date = ev.date || ev.published || ev.timestamp || 'No date';
+
+                            return (
+                              <div key={i} className="evidence-item">
+                                <blockquote>"{quote}"</blockquote>
+                                <div className="evidence-meta">
+                                  <span className="source">{source}</span>
+                                  <span className="date">{date}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       )}
                     </div>
-
-                    <div className="reasoning">
-                      <strong>Analysis:</strong>
-                      <p>{data.reasoning || 'No reasoning provided'}</p>
-                    </div>
-
-                    {data.evidence && data.evidence.length > 0 && (
-                      <div className="evidence-section">
-                        <strong>Evidence ({data.evidence.length} quotes):</strong>
-                        {data.evidence.map((ev, i) => (
-                          <div key={i} className="evidence-item">
-                            <blockquote>"{ev.quote}"</blockquote>
-                            <div className="evidence-meta">
-                              <span>{ev.source}</span>
-                              <span>{ev.date}</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -344,11 +373,123 @@ function App() {
           </button>
 
           {/* Relationship Results */}
-          {relationshipData && (
+          {relationshipData && relationshipData.relationships && (
             <div className="relationships-section">
               <h2>Entity Relationships</h2>
-              {/* Display relationship data here */}
-              <p>Relationship visualization will appear here once backend is ready.</p>
+              <p className="section-info">
+                Showing {relationshipData.relationships.length} relationship pairs from {relationshipData.total_articles || 0} articles
+              </p>
+              
+              <div className="relationships-grid">
+                {relationshipData.relationships.map((rel, idx) => {
+                  // SAFE RELATIONSHIP DATA EXTRACTION
+                  const safeRel = {
+                    entity1: rel.entity1 || 'Unknown',
+                    entity1_en: rel.entity1_en || rel.entity1 || 'Unknown',
+                    entity2: rel.entity2 || 'Unknown',
+                    entity2_en: rel.entity2_en || rel.entity2 || 'Unknown',
+                    relationship_type: rel.relationship_type || 'neutral',
+                    direction: rel.direction || 'mutual',
+                    strength: rel.strength ?? 0,
+                    evolution: rel.evolution || 'stable',
+                    article_count: rel.article_count || rel.articles?.length || 0,
+                    description: rel.description || 'No description available',
+                    key_themes: rel.key_themes || rel.themes || [],
+                    evidence: rel.evidence || rel.quotes || [],
+                    timeline: rel.timeline || rel.periods || []
+                  };
+
+                  return (
+                    <div key={idx} className="relationship-card">
+                      <div className="rel-header">
+                        <div className="rel-entities">
+                          <span className="entity-name">{safeRel.entity1_en}</span>
+                          <span className="rel-connector">
+                            {safeRel.direction === 'mutual' ? '↔' : 
+                             safeRel.direction === 'e1_to_e2' ? '→' : '←'}
+                          </span>
+                          <span className="entity-name">{safeRel.entity2_en}</span>
+                        </div>
+                        <span className={`rel-type-badge ${safeRel.relationship_type}`}>
+                          {safeRel.relationship_type}
+                        </span>
+                      </div>
+
+                      <div className="rel-meta">
+                        <span className="rel-stat">
+                          Strength: {(safeRel.strength * 100).toFixed(0)}%
+                        </span>
+                        <span className="rel-stat">
+                          Evolution: {safeRel.evolution}
+                        </span>
+                        <span className="rel-stat">
+                          Articles: {safeRel.article_count}
+                        </span>
+                      </div>
+
+                      {safeRel.description && (
+                        <p className="rel-description">{safeRel.description}</p>
+                      )}
+
+                      {safeRel.key_themes && safeRel.key_themes.length > 0 && (
+                        <div className="rel-themes">
+                          {safeRel.key_themes.map((theme, i) => (
+                            <span key={i} className="theme-tag">{theme}</span>
+                          ))}
+                        </div>
+                      )}
+
+                      {safeRel.evidence && safeRel.evidence.length > 0 && (
+                        <details className="rel-evidence">
+                          <summary>View Evidence ({safeRel.evidence.length} quotes)</summary>
+                          <div className="evidence-list">
+                            {safeRel.evidence.slice(0, 3).map((ev, i) => {
+                              const quote = ev.quote || ev.text || 'No quote';
+                              const date = ev.date || ev.published || 'No date';
+                              
+                              return (
+                                <div key={i} className="evidence-item-small">
+                                  <div className="quote-text">"{quote}"</div>
+                                  <div className="quote-meta">{date}</div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </details>
+                      )}
+
+                      {safeRel.timeline && safeRel.timeline.length > 0 && (
+                        <details className="rel-timeline">
+                          <summary>View Timeline ({safeRel.timeline.length} periods)</summary>
+                          <div className="timeline-list">
+                            {safeRel.timeline.map((period, i) => {
+                              const safePeriod = {
+                                period: period.period || period.name || `Period ${i + 1}`,
+                                relationship_type: period.relationship_type || period.type || 'neutral',
+                                description: period.description || 'No description'
+                              };
+
+                              return (
+                                <div key={i} className="timeline-period">
+                                  <div className="period-header">
+                                    <strong>{safePeriod.period}</strong>
+                                    <span className={`period-type ${safePeriod.relationship_type}`}>
+                                      {safePeriod.relationship_type}
+                                    </span>
+                                  </div>
+                                  {safePeriod.description && (
+                                    <p className="period-desc">{safePeriod.description}</p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </details>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
@@ -357,8 +498,8 @@ function App() {
             <div className="empty-state">
               <div className="empty-icon">🕸️</div>
               <h3>No Map Generated Yet</h3>
-              <p>Click "Build Relationship Map" to analyze entity relationships</p>
-              <p className="note">Note: Backend endpoint needs to support POST /api/relationships</p>
+              <p>Click "Build Relationship Map" to analyze entity relationships from all Syrian Dialogue Center articles</p>
+              <p className="note">Analyzes top 15 entity pairs with 5+ articles each</p>
             </div>
           )}
         </div>
