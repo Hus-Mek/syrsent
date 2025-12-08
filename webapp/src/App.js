@@ -9,11 +9,9 @@ import {
   BarElement,
   Title,
   Tooltip,
-  Legend,
-  Filler
+  Legend
 } from 'chart.js';
-import { Line, Bar } from 'react-chartjs-2';
-import RelationshipMap from './RelationshipMap';
+import { Bar } from 'react-chartjs-2';
 
 ChartJS.register(
   CategoryScale,
@@ -23,33 +21,37 @@ ChartJS.register(
   BarElement,
   Title,
   Tooltip,
-  Legend,
-  Filler
+  Legend
 );
 
-const API_BASE = 'https://hussssa-syrsenthf.hf.space';
-
 function App() {
-  const [activeTab, setActiveTab] = useState('sentiment');
   const [targets, setTargets] = useState('');
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  /**
+   * EXPLANATION: Main analysis function
+   * - Validates user input (needs at least one target)
+   * - Sends request to backend API
+   * - Handles response and error states
+   */
   const runAnalysis = async () => {
+    // Input validation
     if (!targets.trim()) {
-      setError('Please enter at least one target');
+      setError('Please enter at least one target entity to analyze');
       return;
     }
 
     setLoading(true);
     setError('');
-    setResult(null);
 
+    // Split comma-separated targets and clean them
     const targetList = targets.split(',').map(t => t.trim()).filter(t => t);
 
     try {
-      const response = await fetch(`${API_BASE}/api/analyze`, {
+      // API call to backend
+      const response = await fetch('https://syrsent.onrender.com/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targets: targetList })
@@ -60,78 +62,115 @@ function App() {
       }
 
       const data = await response.json();
-      console.log("=== RAW DATA ===", data);
+      console.log("Analysis completed:", data);
       
       setResult(data);
     } catch (err) {
-      console.error("Fetch error:", err);
-      setError('Failed to connect to API. Is the server running?');
+      console.error("Analysis error:", err);
+      setError('Failed to connect to server. Please check if the API is running and try again.');
     }
 
     setLoading(false);
   };
 
-  // Parse sentiment analysis JSON
+  /**
+   * EXPLANATION: Parse sentiment JSON safely
+   * The backend returns sentiment analysis as a JSON string
+   * We need to parse it carefully and handle any parsing errors
+   */
   const parseSentiment = (sentimentStr) => {
     if (!sentimentStr) return null;
     try {
-      const parsed = typeof sentimentStr === 'string' ? JSON.parse(sentimentStr) : sentimentStr;
-      if (parsed.error) {
-        setError(parsed.error);
-        return null;
-      }
-      return parsed;
+      return JSON.parse(sentimentStr);
     } catch (e) {
-      console.error("Parse failed:", e);
+      console.error("JSON parsing failed:", e);
       return null;
     }
   };
 
-  // Color based on score
+  /**
+   * EXPLANATION: Get color based on sentiment score
+   * Positive (>0.2) = green, Negative (<-0.2) = red, Neutral = amber
+   */
   const getScoreColor = (score) => {
-    if (score > 0.2) return '#4caf50';
-    if (score < -0.2) return '#f44336';
-    return '#ff9800';
+    if (score > 0.2) return 'positive';
+    if (score < -0.2) return 'negative';
+    return 'neutral';
   };
 
-  const getTrendIcon = (trend) => {
-    if (trend === 'improving') return '📈';
-    if (trend === 'declining') return '📉';
-    return '➡️';
-  };
+  /**
+   * EXPLANATION: Build chart data from results
+   * Creates a Chart.js compatible data structure for the bar chart
+   * Uses CSS variables for consistent colors
+   */
+  const getChartData = () => {
+    if (!result?.sentiment_analysis) return null;
 
-  // Build timeline chart data
-  const getTimelineData = (timeline) => {
-    if (!timeline || timeline.length === 0) return null;
+    const sentiment = parseSentiment(result.sentiment_analysis);
+    if (!sentiment?.targets) return null;
+
+    const targetNames = Object.keys(sentiment.targets);
+    const scores = targetNames.map(t => sentiment.targets[t].score);
+    
+    // Map scores to color classes
+    const colors = scores.map(score => {
+      const colorClass = getScoreColor(score);
+      if (colorClass === 'positive') return '#10b981';
+      if (colorClass === 'negative') return '#ef4444';
+      return '#f59e0b';
+    });
 
     return {
-      labels: timeline.map(t => t.period),
-      datasets: [
-        {
-          label: 'Sentiment Score',
-          data: timeline.map(t => t.score),
-          borderColor: '#2196f3',
-          backgroundColor: 'rgba(33, 150, 243, 0.1)',
-          fill: true,
-          tension: 0.3,
-          pointRadius: 6,
-          pointBackgroundColor: timeline.map(t => getScoreColor(t.score)),
-        }
-      ]
+      labels: targetNames,
+      datasets: [{
+        label: 'Sentiment Score',
+        data: scores,
+        backgroundColor: colors,
+        borderColor: colors,
+        borderWidth: 2,
+        borderRadius: 6,
+        hoverBackgroundColor: colors.map(c => c + 'dd'), // Add transparency on hover
+      }]
     };
   };
 
-  // Timeline chart options
-  const timelineOptions = {
+  /**
+   * EXPLANATION: Chart configuration options
+   * Customizes how the Chart.js bar chart looks
+   */
+  const chartOptions = {
     responsive: true,
+    maintainAspectRatio: true,
     plugins: {
       title: {
         display: true,
-        text: 'Sentiment Over Time',
-        font: { size: 16 }
+        text: 'Sentiment Analysis Overview',
+        font: {
+          size: 18,
+          weight: 'bold'
+        },
+        padding: 20
       },
       legend: {
         display: false
+      },
+      tooltip: {
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        padding: 12,
+        titleFont: {
+          size: 14
+        },
+        bodyFont: {
+          size: 13
+        },
+        callbacks: {
+          label: function(context) {
+            const score = context.parsed.y;
+            const sentiment = score > 0.2 ? 'Positive' : 
+                            score < -0.2 ? 'Negative' : 'Neutral';
+            return `${sentiment}: ${score.toFixed(3)}`;
+          }
+        }
       }
     },
     scales: {
@@ -140,208 +179,169 @@ function App() {
         max: 1,
         title: {
           display: true,
-          text: 'Sentiment Score'
+          text: 'Sentiment Score (-1 to +1)',
+          font: {
+            size: 14,
+            weight: 'bold'
+          }
+        },
+        grid: {
+          color: 'rgba(0, 0, 0, 0.05)'
         }
       },
       x: {
-        title: {
-          display: true,
-          text: 'Time Period'
+        grid: {
+          display: false
+        },
+        ticks: {
+          font: {
+            size: 12
+          }
         }
       }
     }
   };
 
-  // Render evidence with period
-  const renderEvidence = (evidence) => {
-    if (!evidence || evidence.length === 0) {
-      return <p className="no-evidence">No evidence quotes available</p>;
-    }
-
-    return evidence.map((ev, i) => {
-      const sentimentClass = ev.sentiment === 'positive' ? 'evidence-positive' : 
-                            ev.sentiment === 'negative' ? 'evidence-negative' : '';
-      
-      return (
-        <div key={i} className={`evidence-item ${sentimentClass}`}>
-          <blockquote>"{typeof ev === 'string' ? ev : ev.quote}"</blockquote>
-          <div className="evidence-meta">
-            {ev.period && <span className="evidence-period">{ev.period}</span>}
-            {ev.sentiment && <span className={`sentiment-tag ${ev.sentiment}`}>{ev.sentiment}</span>}
-          </div>
-        </div>
-      );
-    });
-  };
-
-  // Render timeline details
-  const renderTimelineDetails = (timeline) => {
-    if (!timeline || timeline.length === 0) return null;
-
-    return (
-      <div className="timeline-details">
-        <h4>Period Breakdown</h4>
-        <div className="period-grid">
-          {timeline.map((period, i) => (
-            <div key={i} className="period-card" style={{ borderLeftColor: getScoreColor(period.score) }}>
-              <div className="period-header">
-                <strong>{period.period}</strong>
-                <span className="period-score" style={{ color: getScoreColor(period.score) }}>
-                  {period.score > 0 ? '+' : ''}{period.score}
-                </span>
-              </div>
-              <div className="period-stats">
-                <span>{period.article_count} articles</span>
-                <span>{period.mention_count} mentions</span>
-              </div>
-              {period.themes && period.themes.length > 0 && (
-                <div className="period-themes">
-                  {period.themes.slice(0, 3).map((theme, j) => (
-                    <span key={j} className="theme-tag">{theme}</span>
-                  ))}
-                </div>
-              )}
-              {period.reasoning && (
-                <p className="period-reasoning">{period.reasoning}</p>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  const sentiment = result?.sentiment_analysis ? parseSentiment(result.sentiment_analysis) : null;
+  // Parse sentiment once for the entire component
+  const sentiment = result ? parseSentiment(result.sentiment_analysis) : null;
 
   return (
     <div className="App">
-      <h1>🇸🇾 Syria Sentiment Analyzer</h1>
-      <p className="subtitle">Comprehensive analysis of Syrian Dialogue Center articles</p>
+      {/* HEADER SECTION */}
+      <header className="app-header">
+        <h1>Syria Sentiment Analyzer</h1>
+        <p className="app-subtitle">
+          Analyzing sentiment in the new Syria's political discourse
+        </p>
+      </header>
 
-      {/* Tab Navigation */}
-      <div className="tab-navigation">
-        <button 
-          className={`tab-button ${activeTab === 'sentiment' ? 'active' : ''}`}
-          onClick={() => setActiveTab('sentiment')}
-        >
-          📊 Sentiment Timeline
-        </button>
-        <button 
-          className={`tab-button ${activeTab === 'relationships' ? 'active' : ''}`}
-          onClick={() => setActiveTab('relationships')}
-        >
-          🕸️ Relationship Map
-        </button>
-      </div>
+      {/* INPUT SECTION */}
+      <section className="input-section">
+        <label className="input-label">
+          Enter target entities (comma-separated):
+        </label>
+        <div className="input-group">
+          <input
+            type="text"
+            className="input-field"
+            value={targets}
+            onChange={(e) => setTargets(e.target.value)}
+            placeholder="e.g., Assad regime, Syrian opposition, Russia, Turkey"
+            onKeyPress={(e) => {
+              // Allow Enter key to trigger analysis
+              if (e.key === 'Enter' && !loading) {
+                runAnalysis();
+              }
+            }}
+          />
+          <button 
+            className="btn btn-primary" 
+            onClick={runAnalysis} 
+            disabled={loading}
+          >
+            {loading ? (
+              <>
+                <span className="spinner"></span>
+                Analyzing...
+              </>
+            ) : (
+              'Run Analysis'
+            )}
+          </button>
+        </div>
+        <p style={{ fontSize: '0.875rem', color: '#666', marginTop: '0.5rem' }}>
+          💡 Tip: Try entities like "Assad regime", "Syrian opposition", "civilians", "Russia", "Turkey", "Kurds"
+        </p>
+      </section>
 
-      {/* Sentiment Analysis Tab */}
-      {activeTab === 'sentiment' && (
-        <>
-          <div className="input-section">
-            <label>Enter targets (comma separated):</label>
-            <input
-              type="text"
-              value={targets}
-              onChange={(e) => setTargets(e.target.value)}
-              placeholder="الأسد, روسيا, أمريكا, هتش"
-            />
-            <button onClick={runAnalysis} disabled={loading}>
-              {loading ? 'Analyzing...' : 'Analyze All Articles'}
-            </button>
-            <p className="hint">
-              Examples: الأسد, النظام, روسيا, أمريكا, إيران, تركيا, هتش, الجولاني, قسد
-            </p>
-          </div>
+      {/* ERROR MESSAGE */}
+      {error && (
+        <div className="error">
+          <span>⚠️</span>
+          {error}
+        </div>
+      )}
 
-          {error && <p className="error">{error}</p>}
-
-          {loading && (
-            <div className="loading">
-              <div className="spinner"></div>
-              <p>Scanning ALL articles...</p>
-              <p className="loading-sub">Analyzing sentiment across all time periods</p>
+      {/* RESULTS SECTION */}
+      {sentiment && (
+        <div className="results">
+          
+          {/* CHART VISUALIZATION */}
+          {getChartData() && (
+            <div className="chart-container">
+              <div className="chart-header">
+                <h2 className="chart-title">Sentiment Distribution</h2>
+                <p style={{ color: '#666', fontSize: '0.9rem', margin: 0 }}>
+                  Visual representation of sentiment scores across all analyzed entities
+                </p>
+              </div>
+              <Bar
+                data={getChartData()}
+                options={chartOptions}
+              />
             </div>
           )}
 
-      {sentiment && sentiment.targets && (
-        <div className="results">
-          
-          {Object.entries(sentiment.targets).map(([target, data]) => (
-            <div key={target} className="target-section">
-              
-              {/* Header */}
-              <div className="target-header-main">
-                <h2>{target}</h2>
-                <div className="overall-stats">
+          {/* DETAILED ANALYSIS CARDS */}
+          <section className="targets-section">
+            <h2 className="section-title">Detailed Analysis</h2>
+            
+            {Object.entries(sentiment.targets).map(([target, data]) => (
+              <article key={target} className="target-card">
+                {/* TARGET HEADER WITH NAME AND SCORE */}
+                <div className="target-header">
+                  <h3 className="target-name">{target}</h3>
                   <span 
-                    className="overall-score"
-                    style={{ background: getScoreColor(data.overall_score || data.score || 0) }}
+                    className={`score-badge ${getScoreColor(data.score)}`}
                   >
-                    {data.overall_sentiment || data.sentiment} ({data.overall_score || data.score})
-                  </span>
-                  {data.trend && (
-                    <span className="trend-badge">
-                      {getTrendIcon(data.trend)} {data.trend}
+                    {data.sentiment} 
+                    <span style={{ 
+                      opacity: 0.9, 
+                      marginLeft: '0.5rem',
+                      fontWeight: 'normal' 
+                    }}>
+                      ({data.score.toFixed(3)})
                     </span>
-                  )}
-                  <span className="stats-badge">
-                    📄 {data.total_articles || data.article_count} articles
                   </span>
-                  {data.total_mentions && (
-                    <span className="stats-badge">
-                      🔍 {data.total_mentions} mentions
-                    </span>
-                  )}
                 </div>
-              </div>
 
-              {/* Timeline Chart */}
-              {data.timeline && data.timeline.length > 1 && (
-                <div className="chart-container">
-                  <Line 
-                    data={getTimelineData(data.timeline)} 
-                    options={timelineOptions}
-                  />
+                {/* REASONING EXPLANATION */}
+                <div className="reasoning">
+                  <strong>Analysis Reasoning</strong>
+                  <p>{data.reasoning}</p>
                 </div>
-              )}
 
-              {/* Summary */}
-              <div className="reasoning-section">
-                <h4>📊 Analysis Summary</h4>
-                <p>{data.reasoning}</p>
-              </div>
-
-              {/* Key themes */}
-              {data.key_themes && data.key_themes.length > 0 && (
-                <div className="themes-section">
-                  <h4>🏷️ Key Themes</h4>
-                  <div className="themes-list">
-                    {data.key_themes.map((theme, i) => (
-                      <span key={i} className="theme-tag">{theme}</span>
+                {/* EVIDENCE QUOTES */}
+                {data.evidence && data.evidence.length > 0 && (
+                  <div className="evidence-section">
+                    <strong>Supporting Evidence ({data.evidence.length} {data.evidence.length === 1 ? 'quote' : 'quotes'})</strong>
+                    {data.evidence.map((ev, i) => (
+                      <div key={i} className="evidence-item">
+                        <blockquote>"{ev.quote}"</blockquote>
+                        <div className="evidence-source">
+                          <strong>{ev.source}</strong> — {ev.date}
+                        </div>
+                      </div>
                     ))}
                   </div>
-                </div>
-              )}
-
-              {/* Period breakdown */}
-              {renderTimelineDetails(data.timeline)}
-
-              {/* Evidence */}
-              <div className="evidence-section">
-                <h4>📝 Evidence Quotes</h4>
-                {renderEvidence(data.evidence)}
-              </div>
-
-            </div>
-          ))}
+                )}
+              </article>
+            ))}
+          </section>
         </div>
       )}
-        </>
-      )}
 
-      {/* Relationship Map Tab */}
-      {activeTab === 'relationships' && (
-        <RelationshipMap apiBase={API_BASE} />
+      {/* EMPTY STATE - Show when no results yet */}
+      {!sentiment && !loading && !error && (
+        <div style={{ 
+          textAlign: 'center', 
+          padding: '3rem', 
+          color: '#666' 
+        }}>
+          <p style={{ fontSize: '1.1rem' }}>
+            Enter target entities above and click "Run Analysis" to begin
+          </p>
+        </div>
       )}
     </div>
   );
