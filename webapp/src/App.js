@@ -11,7 +11,7 @@ import {
   Tooltip,
   Legend
 } from 'chart.js';
-import { Bar, Line } from 'react-chartjs-2';
+import { Bar } from 'react-chartjs-2';
 
 ChartJS.register(
   CategoryScale,
@@ -27,20 +27,23 @@ ChartJS.register(
 const API_BASE = 'https://hussssa-syrsenthf.hf.space';
 
 function App() {
-  // Shared state
+  // Tab state
   const [activeTab, setActiveTab] = useState('sentiment');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   
-  // Sentiment tab state
+  // Sentiment state
   const [targets, setTargets] = useState('');
   const [sentimentResult, setSentimentResult] = useState(null);
+  const [sentimentLoading, setSentimentLoading] = useState(false);
   
-  // Relationship tab state
+  // Relationship state  
   const [relationshipData, setRelationshipData] = useState(null);
+  const [relationshipLoading, setRelationshipLoading] = useState(false);
+  
+  // Shared error state
+  const [error, setError] = useState('');
 
   /**
-   * SENTIMENT ANALYSIS TAB
+   * SENTIMENT ANALYSIS
    */
   const runSentimentAnalysis = async () => {
     if (!targets.trim()) {
@@ -48,7 +51,7 @@ function App() {
       return;
     }
 
-    setLoading(true);
+    setSentimentLoading(true);
     setError('');
 
     const targetList = targets.split(',').map(t => t.trim()).filter(t => t);
@@ -65,36 +68,40 @@ function App() {
       const data = await response.json();
       setSentimentResult(data);
     } catch (err) {
-      console.error("Analysis error:", err);
-      setError('Failed to connect to server. Please try again.');
+      console.error("Sentiment analysis error:", err);
+      setError('Failed to analyze sentiment. Please try again.');
     }
 
-    setLoading(false);
+    setSentimentLoading(false);
   };
 
   /**
-   * RELATIONSHIP MAP TAB
+   * RELATIONSHIP MAP
+   * Note: Backend needs to implement POST /api/relationships endpoint
    */
   const buildRelationshipMap = async () => {
-    setLoading(true);
+    setRelationshipLoading(true);
     setError('');
 
     try {
+      // Check if endpoint exists
       const response = await fetch(`${API_BASE}/api/relationships`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
 
-      if (!response.ok) throw new Error('Failed to build map');
+      if (!response.ok) {
+        throw new Error('Relationship mapping not yet implemented on backend');
+      }
       
       const data = await response.json();
       setRelationshipData(data);
     } catch (err) {
       console.error("Relationship map error:", err);
-      setError('Failed to build relationship map. Please try again.');
+      setError('Relationship mapping feature coming soon. Backend endpoint needs to be implemented.');
     }
 
-    setLoading(false);
+    setRelationshipLoading(false);
   };
 
   // Parse sentiment JSON safely
@@ -108,27 +115,21 @@ function App() {
     }
   };
 
-  // Get color based on sentiment score
-  const getScoreColor = (score) => {
+  // Get color class based on score
+  const getScoreColorClass = (score) => {
     if (score > 0.2) return 'positive';
     if (score < -0.2) return 'negative';
     return 'neutral';
   };
 
-  // Get relationship color
-  const getRelationshipColor = (type) => {
-    const colors = {
-      alliance: '#10b981',
-      support: '#3b82f6',
-      neutral: '#6b7280',
-      tension: '#f59e0b',
-      conflict: '#ef4444',
-      opposition: '#dc2626'
-    };
-    return colors[type] || '#6b7280';
+  // Get hex color for charts
+  const getScoreHexColor = (score) => {
+    if (score > 0.2) return '#10b981';
+    if (score < -0.2) return '#ef4444';
+    return '#f59e0b';
   };
 
-  // Build chart data for sentiment
+  // Build chart data
   const getSentimentChartData = () => {
     if (!sentimentResult?.sentiment_analysis) return null;
 
@@ -137,13 +138,7 @@ function App() {
 
     const targetNames = Object.keys(sentiment.targets);
     const scores = targetNames.map(t => sentiment.targets[t].score);
-    
-    const colors = scores.map(score => {
-      const colorClass = getScoreColor(score);
-      if (colorClass === 'positive') return '#10b981';
-      if (colorClass === 'negative') return '#ef4444';
-      return '#f59e0b';
-    });
+    const colors = scores.map(s => getScoreHexColor(s));
 
     return {
       labels: targetNames,
@@ -153,7 +148,7 @@ function App() {
         backgroundColor: colors,
         borderColor: colors,
         borderWidth: 2,
-        borderRadius: 8
+        borderRadius: 6
       }]
     };
   };
@@ -162,90 +157,75 @@ function App() {
 
   return (
     <div className="App">
-      {/* Modern Header with New Syrian Flag Colors */}
-      <header className="app-header-modern">
-        <div className="header-content">
-          <h1>🇸🇾 Syria Analysis Platform</h1>
-          <p className="subtitle">Comprehensive sentiment and relationship tracking</p>
-          <div className="header-badge">New Syrian Government | December 2024</div>
-        </div>
+      {/* Header with Syrian Dialogue Center theme */}
+      <header className="app-header">
+        <h1>Syria Analysis Platform</h1>
+        <p className="subtitle">Syrian Dialogue Center - Sentiment Analysis Tool</p>
       </header>
 
       {/* Tab Navigation */}
-      <nav className="tabs-nav">
+      <div className="tabs-nav">
         <button 
           className={`tab-btn ${activeTab === 'sentiment' ? 'active' : ''}`}
           onClick={() => setActiveTab('sentiment')}
         >
-          <span className="tab-icon">📊</span>
-          <span className="tab-label">Sentiment Analysis</span>
+          📊 Sentiment Analysis
         </button>
         <button 
           className={`tab-btn ${activeTab === 'relationships' ? 'active' : ''}`}
           onClick={() => setActiveTab('relationships')}
         >
-          <span className="tab-icon">🕸️</span>
-          <span className="tab-label">Relationship Map</span>
+          🕸️ Relationship Map
         </button>
-      </nav>
+      </div>
 
       {/* Error Display */}
       {error && (
-        <div className="error-modern">
+        <div className="error-box">
           <span className="error-icon">⚠️</span>
-          <span className="error-text">{error}</span>
+          <span>{error}</span>
           <button className="error-close" onClick={() => setError('')}>×</button>
         </div>
       )}
 
-      {/* ========== SENTIMENT ANALYSIS TAB ========== */}
+      {/* ========== SENTIMENT TAB ========== */}
       {activeTab === 'sentiment' && (
-        <div className="tab-content sentiment-tab">
-          <div className="section-card">
-            <h2 className="section-title">Target Entities</h2>
-            <p className="section-desc">Enter Syrian political entities to analyze sentiment</p>
-            
-            <div className="input-group-modern">
+        <div className="tab-content">
+          <div className="input-section">
+            <label>Target Entities (comma-separated):</label>
+            <div className="input-group">
               <input
                 type="text"
-                className="input-modern"
                 value={targets}
                 onChange={(e) => setTargets(e.target.value)}
-                placeholder="Assad regime, Syrian opposition, Russia, Turkey, HTS, Kurds..."
-                onKeyPress={(e) => e.key === 'Enter' && !loading && runSentimentAnalysis()}
+                placeholder="Assad regime, Russia, Turkey, HTS, Kurdish forces..."
+                onKeyPress={(e) => e.key === 'Enter' && !sentimentLoading && runSentimentAnalysis()}
               />
               <button 
-                className="btn-modern btn-primary" 
                 onClick={runSentimentAnalysis} 
-                disabled={loading}
+                disabled={sentimentLoading}
+                className="btn-primary"
               >
-                {loading ? (
+                {sentimentLoading ? (
                   <>
-                    <span className="spinner-modern"></span>
+                    <span className="spinner"></span>
                     Analyzing...
                   </>
                 ) : (
-                  <>
-                    <span>▶</span> Run Analysis
-                  </>
+                  'Run Analysis'
                 )}
               </button>
             </div>
-
-            <div className="input-hints">
-              <span className="hint-badge">💡 Try: "Assad regime"</span>
-              <span className="hint-badge">💡 Try: "Russia, Turkey"</span>
-              <span className="hint-badge">💡 Try: "HTS, Syrian opposition"</span>
-            </div>
+            <p className="hint">💡 Try: "Assad regime, Russia, Turkey" or "HTS, Syrian opposition"</p>
           </div>
 
-          {/* Sentiment Results */}
+          {/* Results */}
           {sentiment && (
-            <div className="results-modern">
+            <div className="results">
               {/* Chart */}
               {getSentimentChartData() && (
-                <div className="section-card chart-card">
-                  <h2 className="section-title">Sentiment Distribution</h2>
+                <div className="chart-section">
+                  <h2>Sentiment Distribution</h2>
                   <div className="chart-wrapper">
                     <Bar
                       data={getSentimentChartData()}
@@ -255,10 +235,8 @@ function App() {
                         plugins: {
                           legend: { display: false },
                           tooltip: {
-                            backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                            padding: 16,
-                            titleFont: { size: 14, weight: 'bold' },
-                            bodyFont: { size: 13 },
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            padding: 12,
                             callbacks: {
                               label: (context) => {
                                 const score = context.parsed.y;
@@ -275,9 +253,7 @@ function App() {
                             max: 1,
                             grid: { color: 'rgba(0, 0, 0, 0.05)' }
                           },
-                          x: {
-                            grid: { display: false }
-                          }
+                          x: { grid: { display: false } }
                         }
                       }}
                     />
@@ -285,39 +261,42 @@ function App() {
                 </div>
               )}
 
-              {/* Detailed Cards */}
-              <div className="targets-grid">
+              {/* Target Cards */}
+              <div className="targets-section">
+                <h2>Analysis Details</h2>
                 {Object.entries(sentiment.targets).map(([target, data]) => (
-                  <div key={target} className="target-card-modern">
-                    <div className="card-header-modern">
-                      <h3 className="target-name-modern">{target}</h3>
-                      <span className={`badge-modern badge-${getScoreColor(data.score)}`}>
-                        {data.sentiment}
-                        <span className="badge-score">{data.score.toFixed(2)}</span>
-                      </span>
+                  <div key={target} className="target-card">
+                    <div className="target-header">
+                      <h3>{target}</h3>
+                      {/* FIX: Check if score exists before calling toFixed */}
+                      {data.score !== undefined && data.score !== null ? (
+                        <span className={`score-badge ${getScoreColorClass(data.score)}`}>
+                          {data.sentiment} ({data.score.toFixed(2)})
+                        </span>
+                      ) : (
+                        <span className="score-badge neutral">
+                          {data.sentiment || 'Unknown'} (N/A)
+                        </span>
+                      )}
                     </div>
 
-                    <div className="card-section">
-                      <h4 className="section-label">Analysis</h4>
-                      <p className="reasoning-text">{data.reasoning}</p>
+                    <div className="reasoning">
+                      <strong>Analysis:</strong>
+                      <p>{data.reasoning || 'No reasoning provided'}</p>
                     </div>
 
                     {data.evidence && data.evidence.length > 0 && (
-                      <div className="card-section">
-                        <h4 className="section-label">
-                          Evidence ({data.evidence.length} {data.evidence.length === 1 ? 'quote' : 'quotes'})
-                        </h4>
-                        <div className="evidence-list">
-                          {data.evidence.map((ev, i) => (
-                            <div key={i} className="evidence-card">
-                              <blockquote className="evidence-quote">"{ev.quote}"</blockquote>
-                              <div className="evidence-meta">
-                                <span className="evidence-source">{ev.source}</span>
-                                <span className="evidence-date">{ev.date}</span>
-                              </div>
+                      <div className="evidence-section">
+                        <strong>Evidence ({data.evidence.length} quotes):</strong>
+                        {data.evidence.map((ev, i) => (
+                          <div key={i} className="evidence-item">
+                            <blockquote>"{ev.quote}"</blockquote>
+                            <div className="evidence-meta">
+                              <span>{ev.source}</span>
+                              <span>{ev.date}</span>
                             </div>
-                          ))}
-                        </div>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -327,119 +306,59 @@ function App() {
           )}
 
           {/* Empty State */}
-          {!sentiment && !loading && (
+          {!sentiment && !sentimentLoading && (
             <div className="empty-state">
               <div className="empty-icon">📊</div>
               <h3>Ready to Analyze</h3>
-              <p>Enter target entities above and click "Run Analysis" to begin</p>
+              <p>Enter target entities above to begin sentiment analysis</p>
             </div>
           )}
         </div>
       )}
 
-      {/* ========== RELATIONSHIP MAP TAB ========== */}
+      {/* ========== RELATIONSHIP TAB ========== */}
       {activeTab === 'relationships' && (
-        <div className="tab-content relationships-tab">
-          <div className="section-card">
-            <h2 className="section-title">Entity Relationship Network</h2>
-            <p className="section-desc">
-              Visualize how Syrian political entities interact and how relationships evolve over time
-            </p>
-            <div className="info-badge">
-              <span className="badge-icon">ℹ️</span>
-              Distinguishes between Assad Regime (pre-Dec 2024) and New Syrian Government
+        <div className="tab-content">
+          <div className="info-box">
+            <div className="info-icon">ℹ️</div>
+            <div>
+              <h3>Relationship Mapping</h3>
+              <p>Visualize how Syrian political entities interact and how relationships evolve over time.</p>
+              <p><strong>Note:</strong> This feature distinguishes between Assad Regime (pre-Dec 2024) and the new Syrian government.</p>
             </div>
-            
-            <button 
-              className="btn-modern btn-primary" 
-              onClick={buildRelationshipMap} 
-              disabled={loading}
-            >
-              {loading ? (
-                <>
-                  <span className="spinner-modern"></span>
-                  Building Map...
-                </>
-              ) : (
-                <>
-                  <span>🗺️</span> Build Relationship Map
-                </>
-              )}
-            </button>
           </div>
+
+          <button 
+            onClick={buildRelationshipMap} 
+            disabled={relationshipLoading}
+            className="btn-primary"
+          >
+            {relationshipLoading ? (
+              <>
+                <span className="spinner"></span>
+                Building Map...
+              </>
+            ) : (
+              'Build Relationship Map'
+            )}
+          </button>
 
           {/* Relationship Results */}
           {relationshipData && (
-            <div className="results-modern">
-              <div className="section-card">
-                <h3 className="section-title">Relationship Network</h3>
-                <div className="relationships-grid">
-                  {relationshipData.relationships && relationshipData.relationships.map((rel, idx) => (
-                    <div key={idx} className="relationship-card-modern">
-                      <div className="rel-header">
-                        <div className="rel-entities">
-                          <span className="entity">{rel.entity1_en || rel.entity1}</span>
-                          <span className="rel-arrow" style={{ 
-                            color: getRelationshipColor(rel.relationship_type) 
-                          }}>
-                            {rel.direction === 'mutual' ? '↔' : 
-                             rel.direction === 'e1_to_e2' ? '→' : '←'}
-                          </span>
-                          <span className="entity">{rel.entity2_en || rel.entity2}</span>
-                        </div>
-                        <span 
-                          className="rel-type-badge"
-                          style={{ 
-                            backgroundColor: getRelationshipColor(rel.relationship_type) 
-                          }}
-                        >
-                          {rel.relationship_type}
-                        </span>
-                      </div>
-
-                      <div className="rel-meta">
-                        <span className="rel-strength">
-                          Strength: {(rel.strength * 100).toFixed(0)}%
-                        </span>
-                        <span className="rel-evolution">{rel.evolution}</span>
-                      </div>
-
-                      <p className="rel-description">{rel.description}</p>
-
-                      {rel.key_themes && rel.key_themes.length > 0 && (
-                        <div className="rel-themes">
-                          {rel.key_themes.map((theme, i) => (
-                            <span key={i} className="theme-tag">{theme}</span>
-                          ))}
-                        </div>
-                      )}
-
-                      {rel.evidence && rel.evidence.length > 0 && (
-                        <details className="rel-evidence">
-                          <summary>View Evidence ({rel.evidence.length})</summary>
-                          <div className="evidence-list">
-                            {rel.evidence.map((ev, i) => (
-                              <div key={i} className="evidence-item-small">
-                                <div className="quote-ar">"{ev.quote}"</div>
-                                <div className="date-small">{ev.date}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </details>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
+            <div className="relationships-section">
+              <h2>Entity Relationships</h2>
+              {/* Display relationship data here */}
+              <p>Relationship visualization will appear here once backend is ready.</p>
             </div>
           )}
 
           {/* Empty State */}
-          {!relationshipData && !loading && (
+          {!relationshipData && !relationshipLoading && (
             <div className="empty-state">
               <div className="empty-icon">🕸️</div>
               <h3>No Map Generated Yet</h3>
-              <p>Click "Build Relationship Map" to analyze entity relationships from all articles</p>
+              <p>Click "Build Relationship Map" to analyze entity relationships</p>
+              <p className="note">Note: Backend endpoint needs to support POST /api/relationships</p>
             </div>
           )}
         </div>
