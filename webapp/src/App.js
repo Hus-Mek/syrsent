@@ -53,7 +53,6 @@ function App() {
 
     setSentimentLoading(true);
     setError('');
-    setSentimentResult(null); // Clear previous results
 
     const targetList = targets.split(',').map(t => t.trim()).filter(t => t);
 
@@ -67,7 +66,7 @@ function App() {
       if (!response.ok) throw new Error('Analysis failed');
       
       const data = await response.json();
-      console.log("Sentiment response:", data);
+      console.log("Sentiment API response:", data);
       setSentimentResult(data);
     } catch (err) {
       console.error("Sentiment analysis error:", err);
@@ -79,15 +78,13 @@ function App() {
 
   /**
    * RELATIONSHIP MAP
-   * Backend uses GET method with query parameters
+   * Uses GET method with query parameters
    */
   const buildRelationshipMap = async () => {
     setRelationshipLoading(true);
     setError('');
-    setRelationshipData(null); // Clear previous results
 
     try {
-      // GET request with query parameters (not POST!)
       const response = await fetch(`${API_BASE}/api/relationships?min_articles=5&max_pairs=15`, {
         method: 'GET'
       });
@@ -97,7 +94,7 @@ function App() {
       }
       
       const data = await response.json();
-      console.log("Relationship data:", data);
+      console.log("Relationship API response:", data);
       setRelationshipData(data);
     } catch (err) {
       console.error("Relationship map error:", err);
@@ -111,11 +108,6 @@ function App() {
   const parseSentiment = (sentimentStr) => {
     if (!sentimentStr) return null;
     try {
-      // Handle if it's already an object
-      if (typeof sentimentStr === 'object') {
-        return sentimentStr;
-      }
-      // Parse if it's a string
       return JSON.parse(sentimentStr);
     } catch (e) {
       console.error("JSON parsing failed:", e);
@@ -125,7 +117,6 @@ function App() {
 
   // Get color class based on score
   const getScoreColorClass = (score) => {
-    if (score === null || score === undefined) return 'neutral';
     if (score > 0.2) return 'positive';
     if (score < -0.2) return 'negative';
     return 'neutral';
@@ -133,7 +124,6 @@ function App() {
 
   // Get hex color for charts
   const getScoreHexColor = (score) => {
-    if (score === null || score === undefined) return '#6b7280';
     if (score > 0.2) return '#10b981';
     if (score < -0.2) return '#ef4444';
     return '#f59e0b';
@@ -147,10 +137,7 @@ function App() {
     if (!sentiment?.targets) return null;
 
     const targetNames = Object.keys(sentiment.targets);
-    const scores = targetNames.map(t => {
-      const score = sentiment.targets[t].score;
-      return score !== null && score !== undefined ? score : 0;
-    });
+    const scores = targetNames.map(t => sentiment.targets[t].score);
     const colors = scores.map(s => getScoreHexColor(s));
 
     return {
@@ -233,7 +220,7 @@ function App() {
           </div>
 
           {/* Results */}
-          {sentiment && sentiment.targets && (
+          {sentiment && (
             <div className="results">
               {/* Chart */}
               {getSentimentChartData() && (
@@ -277,59 +264,36 @@ function App() {
               {/* Target Cards */}
               <div className="targets-section">
                 <h2>Analysis Details</h2>
-                {Object.entries(sentiment.targets).map(([target, data]) => {
-                  // SAFE DATA EXTRACTION with fallbacks
-                  const targetData = {
-                    sentiment: data.sentiment || data.label || 'Unknown',
-                    score: (data.score !== null && data.score !== undefined) ? data.score : null,
-                    reasoning: data.reasoning || data.analysis || data.explanation || 'No analysis provided',
-                    evidence: data.evidence || data.quotes || data.examples || []
-                  };
-
-                  return (
-                    <div key={target} className="target-card">
-                      <div className="target-header">
-                        <h3>{target}</h3>
-                        {targetData.score !== null ? (
-                          <span className={`score-badge ${getScoreColorClass(targetData.score)}`}>
-                            {targetData.sentiment} ({targetData.score.toFixed(2)})
-                          </span>
-                        ) : (
-                          <span className={`score-badge ${getScoreColorClass(null)}`}>
-                            {targetData.sentiment}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="reasoning">
-                        <strong>Analysis:</strong>
-                        <p>{targetData.reasoning}</p>
-                      </div>
-
-                      {targetData.evidence && targetData.evidence.length > 0 && (
-                        <div className="evidence-section">
-                          <strong>Evidence ({targetData.evidence.length} {targetData.evidence.length === 1 ? 'quote' : 'quotes'}):</strong>
-                          {targetData.evidence.map((ev, i) => {
-                            // SAFE EVIDENCE EXTRACTION with fallbacks
-                            const quote = ev.quote || ev.text || ev.content || 'No quote available';
-                            const source = ev.source || ev.title || ev.article || 'Unknown source';
-                            const date = ev.date || ev.published || ev.timestamp || 'No date';
-
-                            return (
-                              <div key={i} className="evidence-item">
-                                <blockquote>"{quote}"</blockquote>
-                                <div className="evidence-meta">
-                                  <span className="source">{source}</span>
-                                  <span className="date">{date}</span>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
+                {Object.entries(sentiment.targets).map(([target, data]) => (
+                  <div key={target} className="target-card">
+                    <div className="target-header">
+                      <h3>{target}</h3>
+                      <span className={`score-badge ${getScoreColorClass(data.score)}`}>
+                        {data.sentiment} ({data.score.toFixed(2)})
+                      </span>
                     </div>
-                  );
-                })}
+
+                    <div className="reasoning">
+                      <strong>Analysis:</strong>
+                      <p>{data.reasoning}</p>
+                    </div>
+
+                    {data.evidence && data.evidence.length > 0 && (
+                      <div className="evidence-section">
+                        <strong>Evidence ({data.evidence.length} quotes):</strong>
+                        {data.evidence.map((ev, i) => (
+                          <div key={i} className="evidence-item">
+                            <blockquote>"{ev.quote}"</blockquote>
+                            <div className="evidence-meta">
+                              <span>{ev.source}</span>
+                              <span>{ev.date}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -353,7 +317,6 @@ function App() {
             <div>
               <h3>Relationship Mapping</h3>
               <p>Visualize how Syrian political entities interact and how relationships evolve over time.</p>
-              <p><strong>Note:</strong> This feature distinguishes between Assad Regime (pre-Dec 2024) and the new Syrian government.</p>
             </div>
           </div>
 
@@ -377,118 +340,112 @@ function App() {
             <div className="relationships-section">
               <h2>Entity Relationships</h2>
               <p className="section-info">
-                Showing {relationshipData.relationships.length} relationship pairs from {relationshipData.total_articles || 0} articles
+                Showing {relationshipData.relationships.length} relationship pairs 
+                {relationshipData.total_articles && ` from ${relationshipData.total_articles} articles`}
               </p>
               
               <div className="relationships-grid">
-                {relationshipData.relationships.map((rel, idx) => {
-                  // SAFE RELATIONSHIP DATA EXTRACTION
-                  const safeRel = {
-                    entity1: rel.entity1 || 'Unknown',
-                    entity1_en: rel.entity1_en || rel.entity1 || 'Unknown',
-                    entity2: rel.entity2 || 'Unknown',
-                    entity2_en: rel.entity2_en || rel.entity2 || 'Unknown',
-                    relationship_type: rel.relationship_type || 'neutral',
-                    direction: rel.direction || 'mutual',
-                    strength: rel.strength ?? 0,
-                    evolution: rel.evolution || 'stable',
-                    article_count: rel.article_count || rel.articles?.length || 0,
-                    description: rel.description || 'No description available',
-                    key_themes: rel.key_themes || rel.themes || [],
-                    evidence: rel.evidence || rel.quotes || [],
-                    timeline: rel.timeline || rel.periods || []
-                  };
+                {relationshipData.relationships.map((rel, idx) => (
+                  <div key={idx} className="relationship-card">
+                    <div className="rel-header">
+                      <div className="rel-entities">
+                        {/* Display Arabic entity names directly */}
+                        <span className="entity-name">{rel.entity1 || 'Unknown'}</span>
+                        <span className="rel-connector">
+                          {rel.direction === 'mutual' ? '↔' : 
+                           rel.direction === 'e1_to_e2' ? '→' : '←'}
+                        </span>
+                        <span className="entity-name">{rel.entity2 || 'Unknown'}</span>
+                      </div>
+                      <span className={`rel-type-badge ${rel.relationship_type || 'neutral'}`}>
+                        {rel.relationship_type || 'neutral'}
+                      </span>
+                    </div>
 
-                  return (
-                    <div key={idx} className="relationship-card">
-                      <div className="rel-header">
-                        <div className="rel-entities">
-                          <span className="entity-name">{safeRel.entity1_en}</span>
-                          <span className="rel-connector">
-                            {safeRel.direction === 'mutual' ? '↔' : 
-                             safeRel.direction === 'e1_to_e2' ? '→' : '←'}
-                          </span>
-                          <span className="entity-name">{safeRel.entity2_en}</span>
+                    <div className="rel-meta">
+                      <span className="rel-stat">
+                        Strength: {rel.strength ? (rel.strength * 100).toFixed(0) : '0'}%
+                      </span>
+                      <span className="rel-stat">
+                        Evolution: {rel.evolution || 'stable'}
+                      </span>
+                      <span className="rel-stat">
+                        Articles: {rel.article_count || rel.articles?.length || 0}
+                      </span>
+                    </div>
+
+                    {rel.description && (
+                      <p className="rel-description">{rel.description}</p>
+                    )}
+
+                    {rel.key_themes && rel.key_themes.length > 0 && (
+                      <div className="rel-themes">
+                        {rel.key_themes.map((theme, i) => (
+                          <span key={i} className="theme-tag">{theme}</span>
+                        ))}
+                      </div>
+                    )}
+
+                    {rel.evidence && rel.evidence.length > 0 && (
+                      <details className="rel-evidence">
+                        <summary>View Evidence ({rel.evidence.length} quotes)</summary>
+                        <div className="evidence-list">
+                          {rel.evidence.slice(0, 3).map((ev, i) => (
+                            <div key={i} className="evidence-item-small">
+                              <div className="quote-text">"{ev.quote || ev.text || 'No quote'}"</div>
+                              <div className="quote-meta">{ev.date || ev.published || 'No date'}</div>
+                            </div>
+                          ))}
+                          {rel.evidence.length > 3 && (
+                            <p className="more-evidence">+ {rel.evidence.length - 3} more quotes</p>
+                          )}
                         </div>
-                        <span className={`rel-type-badge ${safeRel.relationship_type}`}>
-                          {safeRel.relationship_type}
-                        </span>
-                      </div>
+                      </details>
+                    )}
 
-                      <div className="rel-meta">
-                        <span className="rel-stat">
-                          Strength: {(safeRel.strength * 100).toFixed(0)}%
-                        </span>
-                        <span className="rel-stat">
-                          Evolution: {safeRel.evolution}
-                        </span>
-                        <span className="rel-stat">
-                          Articles: {safeRel.article_count}
-                        </span>
-                      </div>
-
-                      {safeRel.description && (
-                        <p className="rel-description">{safeRel.description}</p>
-                      )}
-
-                      {safeRel.key_themes && safeRel.key_themes.length > 0 && (
-                        <div className="rel-themes">
-                          {safeRel.key_themes.map((theme, i) => (
-                            <span key={i} className="theme-tag">{theme}</span>
+                    {rel.timeline && rel.timeline.length > 0 && (
+                      <details className="rel-timeline">
+                        <summary>View Timeline ({rel.timeline.length} periods)</summary>
+                        <div className="timeline-list">
+                          {rel.timeline.map((period, i) => (
+                            <div key={i} className="timeline-period">
+                              <div className="period-header">
+                                <strong>{period.period || `Period ${i + 1}`}</strong>
+                                <span className={`period-type ${period.relationship_type || 'neutral'}`}>
+                                  {period.relationship_type || 'neutral'}
+                                </span>
+                              </div>
+                              {period.description && (
+                                <p className="period-desc">{period.description}</p>
+                              )}
+                              {period.article_count && (
+                                <p className="period-meta">{period.article_count} articles</p>
+                              )}
+                            </div>
                           ))}
                         </div>
-                      )}
+                      </details>
+                    )}
 
-                      {safeRel.evidence && safeRel.evidence.length > 0 && (
-                        <details className="rel-evidence">
-                          <summary>View Evidence ({safeRel.evidence.length} quotes)</summary>
-                          <div className="evidence-list">
-                            {safeRel.evidence.slice(0, 3).map((ev, i) => {
-                              const quote = ev.quote || ev.text || 'No quote';
-                              const date = ev.date || ev.published || 'No date';
-                              
-                              return (
-                                <div key={i} className="evidence-item-small">
-                                  <div className="quote-text">"{quote}"</div>
-                                  <div className="quote-meta">{date}</div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </details>
-                      )}
-
-                      {safeRel.timeline && safeRel.timeline.length > 0 && (
-                        <details className="rel-timeline">
-                          <summary>View Timeline ({safeRel.timeline.length} periods)</summary>
-                          <div className="timeline-list">
-                            {safeRel.timeline.map((period, i) => {
-                              const safePeriod = {
-                                period: period.period || period.name || `Period ${i + 1}`,
-                                relationship_type: period.relationship_type || period.type || 'neutral',
-                                description: period.description || 'No description'
-                              };
-
-                              return (
-                                <div key={i} className="timeline-period">
-                                  <div className="period-header">
-                                    <strong>{safePeriod.period}</strong>
-                                    <span className={`period-type ${safePeriod.relationship_type}`}>
-                                      {safePeriod.relationship_type}
-                                    </span>
-                                  </div>
-                                  {safePeriod.description && (
-                                    <p className="period-desc">{safePeriod.description}</p>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </details>
-                      )}
-                    </div>
-                  );
-                })}
+                    {/* Show articles list if available */}
+                    {rel.articles && rel.articles.length > 0 && (
+                      <details className="rel-articles">
+                        <summary>View Articles ({rel.articles.length})</summary>
+                        <div className="articles-list">
+                          {rel.articles.slice(0, 5).map((article, i) => (
+                            <div key={i} className="article-item">
+                              <div className="article-title">{article.title || 'Untitled'}</div>
+                              <div className="article-date">{article.date || 'No date'}</div>
+                            </div>
+                          ))}
+                          {rel.articles.length > 5 && (
+                            <p className="more-articles">+ {rel.articles.length - 5} more articles</p>
+                          )}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           )}
