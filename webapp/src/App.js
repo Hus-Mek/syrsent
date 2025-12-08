@@ -80,6 +80,19 @@ function App() {
         setError(parsed.error);
         return null;
       }
+      
+      // Debug: Log the structure
+      console.log('📊 Parsed sentiment data:', parsed);
+      if (parsed.targets) {
+        Object.keys(parsed.targets).forEach(target => {
+          const targetData = parsed.targets[target];
+          console.log(`🎯 Target "${target}" evidence count:`, targetData.evidence?.length || 0);
+          if (targetData.evidence && targetData.evidence[0]) {
+            console.log('📝 First evidence item:', targetData.evidence[0]);
+          }
+        });
+      }
+      
       return parsed;
     } catch (e) {
       console.error("Parse failed:", e);
@@ -158,6 +171,8 @@ function App() {
       return <p className="no-evidence">No evidence quotes available</p>;
     }
 
+    console.log('🔍 Rendering evidence:', evidence[0]); // Debug first item
+
     return evidence.map((ev, i) => {
       const sentimentClass = ev.sentiment === 'positive' ? 'evidence-positive' : 
                             ev.sentiment === 'negative' ? 'evidence-negative' : '';
@@ -166,7 +181,10 @@ function App() {
         <div key={i} className={`evidence-item ${sentimentClass}`}>
           <blockquote>"{typeof ev === 'string' ? ev : ev.quote}"</blockquote>
           <div className="evidence-meta">
-            {ev.period && <span className="evidence-period">{ev.period}</span>}
+            {ev.source && <span className="evidence-source">📄 {ev.source}</span>}
+            {ev.date && <span className="evidence-date">📅 {ev.date}</span>}
+            {ev.url && <a href={ev.url} target="_blank" rel="noopener noreferrer" className="evidence-url">🔗 Link</a>}
+            {ev.period && <span className="evidence-period">📊 {ev.period}</span>}
             {ev.sentiment && <span className={`sentiment-tag ${ev.sentiment}`}>{ev.sentiment}</span>}
           </div>
         </div>
