@@ -57,12 +57,17 @@ function App() {
   });
   const [relationshipsLoading, setRelationshipsLoading] = useState(false);
   
-  // Auto-load relationships on mount if not cached
+  // Auto-load relationships on first visit to Relationships tab (if no cache exists)
   useEffect(() => {
-    if (!relationships && activeTab === 'relationships') {
+    // Only auto-load if:
+    // 1. We're on the relationships tab
+    // 2. No cached data exists
+    // 3. Not currently loading
+    if (activeTab === 'relationships' && !relationships && !relationshipsLoading) {
+      console.log('🔄 First visit detected - auto-loading relationships from API...');
       loadRelationships();
     }
-  }, [activeTab]);
+  }, [activeTab, relationships, relationshipsLoading]);
 
   const runAnalysis = async () => {
     if (!targets.trim()) {
@@ -444,11 +449,6 @@ function App() {
           <div className="relationships-tab">
             <div className="relationships-header">
               <div className="relationships-controls">
-                {!relationships && !relationshipsLoading && (
-                  <button onClick={loadRelationships} className="load-btn">
-                    🔗 Load Relationship Map
-                  </button>
-                )}
                 {relationships && (
                   <div className="cache-info">
                     <span className="cache-badge">📦 Cached (Never Expires - Refresh Manually)</span>
@@ -459,6 +459,9 @@ function App() {
                       🔄 Refresh Data
                     </button>
                   </div>
+                )}
+                {relationshipsLoading && (
+                  <p className="loading-text">⏳ Loading relationships for the first time...</p>
                 )}
               </div>
             </div>
