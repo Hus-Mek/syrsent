@@ -104,33 +104,42 @@ function App() {
   };
   
   const loadRelationships = async () => {
-    setRelationshipsLoading(true);
-    setError('');
+  console.log('🔄 Starting to load relationships...');
+  setRelationshipsLoading(true);
+  setError('');
+  
+  try {
+    const response = await fetch(`${API_BASE}/api/relationships?min_articles=5&max_pairs=15`);
     
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    // Parse JSON directly
+    const data = await response.json();
+    console.log('✅ Received data with', data.relationships?.length, 'relationships');
+    
+    setRelationships(data);
+    
+    // Try to cache (might fail if too large)
     try {
-      const response = await fetch(`${API_BASE}/api/relationships?min_articles=5&max_pairs=15`);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      
-      const data = await response.json();
-      setRelationships(data);
-      
-      // Cache in localStorage
       localStorage.setItem('relationships_cache', JSON.stringify({
         data: data,
         timestamp: Date.now()
       }));
-      console.log('💾 Saved relationships to cache');
-      
-    } catch (err) {
-      setError('Failed to load relationships: ' + err.message);
-      console.error('Relationships error:', err);
-    } finally {
-      setRelationshipsLoading(false);
+      console.log('💾 Cached successfully');
+    } catch (e) {
+      console.warn('Cache failed (too large):', e);
+      // Continue anyway - caching is optional
     }
-  };
+    
+  } catch (err) {
+    console.error('❌ Error:', err);
+    setError('Failed to load: ' + err.message);
+  } finally {
+    setRelationshipsLoading(false);
+  }
+};
   
   const clearRelationshipsCache = () => {
     localStorage.removeItem('relationships_cache');
