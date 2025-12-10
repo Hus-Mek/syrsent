@@ -55,12 +55,37 @@ function RelationshipMap({ apiBase }) {
   const [entities, setEntities] = useState([]);
   const [selectedRelationship, setSelectedRelationship] = useState(null);
 
-  // Load available entities on mount
+  // ✅ FIXED: Load available entities on mount with proper error handling
   useEffect(() => {
-    fetch(`${apiBase}/api/relationships/entities`)
-      .then(res => res.json())
-      .then(data => setEntities(data))
-      .catch(err => console.error('Failed to load entities:', err));
+    const loadEntities = async () => {
+      try {
+        const response = await fetch(`${apiBase}/api/relationships/entities`);
+        
+        if (!response.ok) {
+          console.warn('Entities endpoint returned error, using empty list');
+          setEntities([]);
+          return;
+        }
+        
+        const text = await response.text();
+        
+        // Check if response is valid JSON
+        if (!text.startsWith('{') && !text.startsWith('[')) {
+          console.warn('Entities endpoint returned non-JSON, using empty list');
+          setEntities([]);
+          return;
+        }
+        
+        const data = JSON.parse(text);
+        setEntities(data);
+        
+      } catch (err) {
+        console.warn('Failed to load entities (non-critical):', err.message);
+        setEntities([]); // Continue with empty entities list
+      }
+    };
+    
+    loadEntities();
   }, [apiBase]);
 
   // Build relationship map
