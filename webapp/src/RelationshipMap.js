@@ -48,14 +48,12 @@ const ENTITY_COLORS = {
   unknown: '#616161',
 };
 
-function RelationshipMap({ apiBase }) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [data, setData] = useState(null);
+// ✅ FIXED: Now receives data as prop from App.js
+function RelationshipMap({ apiBase, data }) {
   const [entities, setEntities] = useState([]);
   const [selectedRelationship, setSelectedRelationship] = useState(null);
 
-  // ✅ FIXED: Load available entities on mount with proper error handling
+  // Load available entities on mount (optional)
   useEffect(() => {
     const loadEntities = async () => {
       try {
@@ -69,45 +67,42 @@ function RelationshipMap({ apiBase }) {
         
         const text = await response.text();
         
-        // Check if response is valid JSON
         if (!text.startsWith('{') && !text.startsWith('[')) {
           console.warn('Entities endpoint returned non-JSON, using empty list');
           setEntities([]);
           return;
         }
         
-        const data = JSON.parse(text);
-        setEntities(data);
+        const entityData = JSON.parse(text);
+        setEntities(entityData);
         
       } catch (err) {
         console.warn('Failed to load entities (non-critical):', err.message);
-        setEntities([]); // Continue with empty entities list
+        setEntities([]);
       }
     };
     
     loadEntities();
   }, [apiBase]);
 
-  // Build relationship map
-  const buildMap = async () => {
-    setLoading(true);
-    setError('');
-    setData(null);
-    setSelectedRelationship(null);
-
-    try {
-      const response = await fetch(`${apiBase}/api/relationships?min_articles=5&max_pairs=15`);
-      if (!response.ok) throw new Error('Failed to build relationship map');
+  // Extract unique entities from relationships data if entities endpoint fails
+  useEffect(() => {
+    if (data && data.relationships && entities.length === 0) {
+      const uniqueEntities = new Set();
+      data.relationships.forEach(rel => {
+        if (rel.source_info) uniqueEntities.add(rel.source_info.name_ar);
+        if (rel.target_info) uniqueEntities.add(rel.target_info.name_ar);
+      });
       
-      const result = await response.json();
-      console.log('Relationship data:', result);
-      setData(result);
-    } catch (err) {
-      setError(err.message);
+      const extractedEntities = Array.from(uniqueEntities).map(name => ({
+        id: name,
+        name_ar: name,
+        name_en: name,
+        type: 'unknown'
+      }));
+      setEntities(extractedEntities);
     }
-
-    setLoading(false);
-  };
+  }, [data, entities.length]);
 
   // Get timeline chart data for a relationship
   const getTimelineChartData = (timeline) => {
@@ -295,6 +290,7 @@ function RelationshipMap({ apiBase }) {
     );
   };
 
+  // ✅ CHANGED: No loading/building logic - just display data from props
   return (
     <div className="relationship-map">
       <div className="map-header">
@@ -303,18 +299,12 @@ function RelationshipMap({ apiBase }) {
         <p className="note">
           <strong>Note:</strong> Distinguishes between Assad Regime (pre-Dec 2024) and New Syrian Government (post-Dec 2024)
         </p>
-        <button onClick={buildMap} disabled={loading} className="build-button">
-          {loading ? 'Building map... (this takes a few minutes)' : 'Build Relationship Map'}
-        </button>
+        {/* ✅ REMOVED: "Build Relationship Map" button - App.js handles loading */}
       </div>
 
-      {error && <p className="error">{error}</p>}
-
-      {loading && (
-        <div className="loading">
-          <div className="spinner"></div>
-          <p>Analyzing relationships across all articles...</p>
-          <p className="loading-sub">Building timelines for each entity pair</p>
+      {!data && (
+        <div className="empty-state">
+          <p>Use the "Refresh Data" button above to load relationships</p>
         </div>
       )}
 
@@ -322,9 +312,9 @@ function RelationshipMap({ apiBase }) {
         <div className="map-container">
           {/* Stats */}
           <div className="map-stats">
-            <span>📄 {data.stats?.total_articles} articles analyzed</span>
-            <span>🔗 {data.stats?.relationships_analyzed} relationships mapped</span>
-            <span>👥 {data.nodes?.length} entities</span>
+            <span>📄 {data.stats?.total_articles || 0} articles analyzed</span>
+            <span>🔗 {data.stats?.relationships_analyzed || data.relationships?.length || 0} relationships mapped</span>
+            <span>👥 {data.nodes?.length || entities.length} entities</span>
           </div>
 
           {/* Legend */}
@@ -343,7 +333,11 @@ function RelationshipMap({ apiBase }) {
           {/* Relationships List */}
           <div className="relationships-list">
             <h3>Entity Relationships (click to expand)</h3>
-            {data.relationships?.map((rel, i) => renderRelationshipCard(rel, i))}
+            {data.relationships && data.relationships.length > 0 ? (
+              data.relationships.map((rel, i) => renderRelationshipCard(rel, i))
+            ) : (
+              <p>No relationships found</p>
+            )}
           </div>
         </div>
       )}
