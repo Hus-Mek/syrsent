@@ -1,70 +1,293 @@
-# Getting Started with Create React App
+# SyrSent Frontend - React Application
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A polished React UI for the Syria Sentiment Analyzer. Provides sentiment analysis visualization, relationship mapping, and semantic search across Syrian Dialogue Center articles.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+### 📊 Sentiment Analysis Tab
+- **Timeline Charts**: Visualize sentiment evolution over periods
+- **Period Breakdown**: Interactive cards showing:
+  - Sentiment score and trend
+  - Article count and mention count
+  - Key themes (up to 3 per period)
+  - Period reasoning from LLM analysis
+  - Top 2 key quotes with article attribution
+- **Evidence Quotes**: Full evidence section with:
+  - Direct quotes from source articles
+  - Article name (📄 source attribution)
+  - Time period indicator
+  - Sentiment classification (positive/negative/neutral)
+- **Overall Statistics**: Aggregate sentiment across all periods
+- **Trend Detection**: Shows improving/declining/stable trends
 
-### `npm start`
+### 🔗 Relationship Mapping
+- **Entity Relationships**: See how different entities relate to each other
+- **Relationship Timeline**: Charts showing relationship evolution
+- **Period Analysis**: Detailed cards per period with:
+  - Relationship type and sentiment color
+  - Article count
+  - Key events
+  - Evidence quotes with interpretations
+  - Source articles
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+### 🔍 Search Tab
+- **Semantic Search**: Find articles by meaning, not keywords
+- **Mention Tracking**: See which articles mention your targets
+- **Advanced Filtering**: Filter by period, sentiment, themes
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Setup
 
-### `npm test`
+### Installation
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+```bash
+# Install dependencies
+npm install
 
-### `npm run build`
+# Create .env file
+echo "REACT_APP_API_BASE=http://localhost:7860" > .env
+```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### Development
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+```bash
+# Start development server
+npm start
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+# Open http://localhost:3000 in your browser
+```
 
-### `npm run eject`
+### Production Build
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+```bash
+# Build optimized production bundle
+npm run build
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+# The build/ folder can be deployed to any static host
+```
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+## Configuration
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+Create a `.env` file in the webapp root:
 
-## Learn More
+```env
+# API Base URL (must point to running syrsenthf API)
+REACT_APP_API_BASE=http://localhost:7860
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+# Optional: Analytics, deployment-specific vars, etc.
+```
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+## File Structure
 
-### Code Splitting
+```
+src/
+├── App.js                 # Main sentiment analysis interface
+├── relationshipmap.js     # Relationship visualization and analysis
+├── searchpage.js          # Semantic search interface
+├── App.css               # All styling (period cards, evidence, polished UI)
+├── index.js              # React entry point
+├── index.css             # Global styles
+└── setupTests.js         # Test configuration
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+## Key Components
 
-### Analyzing the Bundle Size
+### App.js (Main Component)
+- **Input Section**: Text input for comma-separated targets
+- **Result Section**: 
+  - Charts (Line & Bar)
+  - Target statistics
+  - Period breakdown cards
+  - Evidence quotes section
+- **State Management**: Local state for targets, results, loading, errors
+- **API Integration**: Calls `/api/analyze` endpoint
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+### RelationshipMap.js
+- **Entity Selection**: Dropdown or list of tracked entities
+- **Relationship Grid**: Cards for each entity pair
+- **Timeline Chart**: Relationship evolution visualization
+- **Period Cards**: Detailed breakdown per period
 
-### Making a Progressive Web App
+### SearchPage.js
+- **Search Input**: Semantic search query
+- **Target Selection**: Filter by entities
+- **Results Display**: Ranked articles with relevance scores
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+## Data Flow
 
-### Advanced Configuration
+```
+User Input (targets)
+    ↓
+POST /api/analyze
+    ↓
+Backend (LLM analysis)
+    ↓
+JSON Response
+    ↓
+Parse & Display
+    ↓
+Cache in localStorage
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+## Styling & Theme
 
-### Deployment
+All styles are in `App.css`:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+**Color Palette:**
+- Positive Sentiment: Green (#4caf50)
+- Negative Sentiment: Red (#f44336)
+- Neutral Sentiment: Orange (#ff9800)
+- Primary Blue: #1a237e, #2196f3
+- Backgrounds: #f5f7fa, #fafafa
 
-### `npm run build` fails to minify
+**Component Styles:**
+- **Evidence Items**: Blockquotes with colored left border
+- **Period Cards**: Grid layout with responsive design
+- **Charts**: Chart.js with custom colors
+- **Badges**: Sentiment tags with colors
+- **Theme Tags**: Display key themes from analysis
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+## Performance Optimizations
+
+1. **localStorage Caching**: Results cached locally, survives page refresh
+2. **Lazy Loading**: Charts only render when visible
+3. **Debounced Input**: Prevents excessive API calls
+4. **Memoization**: React components optimized to prevent unnecessary re-renders
+
+## Browser Compatibility
+
+- Chrome/Edge: 90+
+- Firefox: 88+
+- Safari: 14+
+
+Requires ES6+ support.
+
+## Common Issues
+
+### API Not Responding
+```
+Error: Failed to connect to API
+```
+**Solution:**
+1. Ensure backend is running: `cd syrsenthf && python app.py`
+2. Check REACT_APP_API_BASE in .env
+3. Verify CORS is enabled (should be in app.py)
+
+### Results Not Displaying
+```
+Error: Parse failed
+```
+**Solution:**
+1. Check browser console for detailed error
+2. Verify API response is valid JSON
+3. Clear localStorage: `localStorage.clear()`
+
+### Charts Not Rendering
+**Solution:**
+1. Check Chart.js is properly imported
+2. Verify data has required fields (labels, datasets)
+3. Inspect browser console for errors
+
+### Relationship Data Missing
+**Solution:**
+1. Click "Build Relationship Map" button
+2. Wait for analysis to complete (3-10 minutes)
+3. Data will cache automatically
+
+## Development Tips
+
+### Running Tests
+```bash
+npm test
+```
+
+### Debugging
+1. Use React Developer Tools browser extension
+2. Open DevTools Console for API logs
+3. Check localStorage: `localStorage.getItem('sentiment_analysis')`
+
+### Adding New Features
+1. Keep styles in App.css (append, don't rewrite)
+2. Use existing color constants
+3. Follow component naming: `render<Feature>()`
+4. Add loading states for async operations
+
+## Deployment
+
+### To Vercel
+```bash
+npm install -g vercel
+vercel
+```
+
+### To GitHub Pages
+```bash
+# Update package.json
+"homepage": "https://yourusername.github.io/syrsent-webapp"
+
+# Build and deploy
+npm run build
+```
+
+### Docker
+See root project for Docker setup (backend is containerized, frontend can be served as static files).
+
+## API Response Format
+
+The app expects this JSON structure from `/api/analyze`:
+
+```json
+{
+  "sentiment_analysis": {
+    "targets": {
+      "target_name": {
+        "overall_sentiment": "positive",
+        "overall_score": 0.75,
+        "trend": "improving",
+        "total_articles": 42,
+        "total_mentions": 156,
+        "periods_analyzed": 6,
+        "timeline": [
+          {
+            "period": "2024-01",
+            "sentiment": "neutral",
+            "score": 0.1,
+            "article_count": 5,
+            "mention_count": 12,
+            "themes": ["theme1", "theme2"],
+            "reasoning": "...",
+            "evidence": [
+              {
+                "quote": "...",
+                "sentiment": "positive",
+                "article": "Article Title"
+              }
+            ]
+          }
+        ],
+        "evidence": [...],
+        "key_themes": ["theme1", "theme2"]
+      }
+    }
+  }
+}
+```
+
+## Contributing
+
+1. Make UI changes in App.js, relationshipmap.js, or searchpage.js
+2. Update styling in App.css
+3. Test with `npm start`
+4. Ensure no console errors
+5. Commit and push
+
+## License
+
+Same as parent project (see root README)
+
+## Support
+
+For issues or questions:
+1. Check browser console for error messages
+2. Verify backend is running and accessible
+3. Create an issue on GitHub with screenshots
+4. Include your browser version and OS

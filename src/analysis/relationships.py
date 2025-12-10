@@ -254,38 +254,87 @@ IMPORTANT CONTEXT: As of December 2024, the Assad regime fell. The new Syrian go
 - Distinguish between references to the old regime vs new government
 """
     
-    prompt = f"""Analyze the relationship between these two entities based on Arabic articles from {period}:
+    prompt = f"""You are analyzing the relationship between two specific entities based on Arabic news articles.
 
-ENTITY 1: {e1_info.get('name_ar')} ({e1_info.get('name_en')}) - Type: {e1_info.get('type')}
-ENTITY 2: {e2_info.get('name_ar')} ({e2_info.get('name_en')}) - Type: {e2_info.get('type')}
+ENTITY 1: {e1_info.get('name_ar')} ({e1_info.get('name_en')})
+ENTITY 2: {e2_info.get('name_ar')} ({e2_info.get('name_en')})
 {transition_note}
 
-Based on these articles from {period}, determine:
-1. The nature of relationship (alliance/conflict/tension/support/opposition/negotiation/neutral/cooperation)
-2. Key events or themes discussed
-3. Direct quotes that illustrate the relationship
-4. Which specific articles support your analysis
+CRITICAL RULES - YOU MUST FOLLOW THESE:
 
-ARTICLES:
+1. ONLY analyze content that EXPLICITLY discusses interactions between {e1_info.get('name_en')} and {e2_info.get('name_en')}.
+
+2. REQUIRED for relationship evidence:
+   ✅ Text must mention BOTH entities in the SAME context
+   ✅ Text must describe an action, statement, or position by one toward the other
+   ✅ You must provide an EXACT QUOTE that proves the interaction
+
+3. DO NOT infer relationships from:
+   ❌ Both entities mentioned separately in different parts of article
+   ❌ Both entities doing similar things (unless explicitly coordinating)
+   ❌ Third-party statements about both entities
+   ❌ General regional dynamics
+
+4. DISTINGUISH accusations from facts:
+   ✅ "Russia accuses Turkey of X" = Russia-Turkey interaction
+   ❌ "Russia accuses Turkey of X" ≠ evidence that X is true
+   
+5. If NO direct interaction exists:
+   - Set relationship_type = "no_data"
+   - Set has_direct_content = false
+   - State: "No direct interaction between these entities found"
+   - DO NOT fabricate or infer a relationship
+
+ARTICLES FROM {period}:
 {context}
 
-Respond with JSON only (no other text):
+VERIFICATION CHECKLIST (answer before providing JSON):
+□ Did I find text that mentions BOTH {e1_info.get('name_en')} AND {e2_info.get('name_en')} together?
+□ Does that text describe a direct interaction/statement between them?
+□ Can I provide an exact quote proving this interaction?
+□ Am I accurately representing what the text says (not inverting or fabricating)?
+
+If you answered NO to any question above, you MUST return "no_data".
+
+Respond with JSON only:
 {{
-    "relationship_type": "alliance|conflict|tension|support|opposition|negotiation|neutral|cooperation",
+    "relationship_type": "alliance|conflict|tension|support|opposition|negotiation|neutral|cooperation|no_data",
     "strength": 0.0 to 1.0,
     "sentiment": "positive|negative|neutral",
-    "description": "Brief description in English",
+    "description": "ONE sentence describing the DIRECT interaction between {e1_info.get('name_en')} and {e2_info.get('name_en')}. If no interaction: 'No direct interaction found.'",
     "description_ar": "وصف مختصر بالعربية",
-    "key_events": ["event1", "event2"],
+    "key_events": ["ONLY events involving BOTH entities directly"],
     "evidence": [
         {{
-            "quote": "exact Arabic quote",
+            "quote": "EXACT Arabic quote showing BOTH {e1_info.get('name_ar')} AND {e2_info.get('name_ar')} interacting",
             "article_index": 1,
-            "interpretation": "what this quote shows"
+            "interpretation": "What this quote proves about the {e1_info.get('name_en')}-{e2_info.get('name_en')} relationship"
         }}
     ],
-    "article_references": [1, 2, 3]
-}}"""
+    "article_references": [article numbers that contain direct interaction evidence],
+    "has_direct_content": true|false
+}}
+
+EXAMPLES OF CORRECT ANALYSIS:
+
+Example 1 - No Relationship:
+Article: "Russia accused of chemical weapons use in Syria"
+Entity pair: US-Turkey
+✅ CORRECT: {{"relationship_type": "no_data", "has_direct_content": false, "description": "No direct interaction found."}}
+❌ WRONG: Reporting anything about US-Turkey based on this article
+
+Example 2 - Accusation (not relationship):
+Article: "روسيا تتهم الولايات المتحدة وتركيا بدعم HTS"
+Entity pair: US-Turkey  
+✅ CORRECT: {{"relationship_type": "no_data", "description": "Article discusses Russian accusations, not US-Turkey direct interaction"}}
+❌ WRONG: "US and Turkey cooperating"
+
+Example 3 - Actual Relationship:
+Article: "تركيا أعلنت رفضها للموقف الأمريكي بشأن القوات الكردية"
+Entity pair: US-Turkey
+✅ CORRECT: {{"relationship_type": "tension", "quote": "تركيا أعلنت رفضها للموقف الأمريكي", "description": "Turkey publicly rejected US position on Kurdish forces"}}
+
+REMEMBER: If you cannot find a direct quote showing BOTH entities interacting, you MUST return "no_data". Do not fabricate relationships."""
 
     try:
         response = client.chat.completions.create(
