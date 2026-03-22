@@ -6,32 +6,65 @@ CRITICAL: This uses the MULTILINGUAL embedding model.
 The retriever.py MUST use the same model!
 
 Model: paraphrase-multilingual-MiniLM-L12-v2
+Supports: Arabic, English, and 50+ other languages
 """
 
 import json
 import os
+import logging
 import chromadb
 from chromadb.utils import embedding_functions
 
 # ============================================================
+# LOGGING CONFIGURATION
+# ============================================================
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# ============================================================
 # MULTILINGUAL MODEL - supports Arabic, English, 50+ languages
 # ============================================================
+
 EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 
-with open("data/sydialogue_ar_publications.json", "r", encoding="utf-8") as f:
-    print(f.read()[:200])
+
+# ============================================================
+# DATA LOADING
+# ============================================================
 
 def load_articles(filepath="data/sydialogue_ar_publications.json"):
-    """Load scraped articles."""
+    """
+    Load scraped articles from JSON file.
+    
+    Args:
+        filepath (str): Path to articles JSON file
+    
+    Returns:
+        list: Article objects with title, content, date, url, etc.
+    """
     with open(filepath, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def chunk_text(text, chunk_size=1000, overlap=200):
+# ============================================================
+# TEXT CHUNKING
+# ============================================================
+
+def chunk_text(text, chunk_size=400, overlap=100):
     """
-    Split text into overlapping chunks.
+    Split text into overlapping chunks for better semantic search.
     
-    Smaller chunks (400 words) work better for Arabic semantic search.
+    Smaller chunks (400 words) with overlap work better for Arabic
+    semantic search, ensuring context is preserved across boundaries.
+    
+    Args:
+        text (str): Text to chunk
+        chunk_size (int): Words per chunk
+        overlap (int): Overlapping words between chunks
+    
+    Returns:
+        list: Text chunks (strings)
     """
     if not text:
         return []
@@ -47,11 +80,26 @@ def chunk_text(text, chunk_size=1000, overlap=200):
     return chunks
 
 
+# ============================================================
+# INDEXING
+# ============================================================
+
 def index_articles(articles, db_path="data/chroma_db"):
-    """Index all articles into ChromaDB with multilingual embeddings."""
+    """
+    Index all articles into ChromaDB with multilingual embeddings.
     
-    print(f"Using embedding model: {EMBEDDING_MODEL}")
-    print(f"This model supports Arabic and 50+ other languages")
+    Creates vector embeddings for all article chunks and stores them
+    in ChromaDB for semantic search. Deletes existing collection if present.
+    
+    Args:
+        articles (list): Article objects to index
+        db_path (str): Path to ChromaDB storage directory
+    
+    Returns:
+        Collection: The created ChromaDB collection
+    """
+    logger.info(f"Using embedding model: {EMBEDDING_MODEL}")
+    logger.info(f"This model supports Arabic and 50+ other languages")
     
     # Initialize ChromaDB
     client = chromadb.PersistentClient(path=db_path)
@@ -59,7 +107,7 @@ def index_articles(articles, db_path="data/chroma_db"):
     # Delete existing collection if exists
     try:
         client.delete_collection("syria_articles")
-        print("Deleted existing collection")
+        logger.info("Deleted existing collection")
     except:
         pass
     
@@ -80,7 +128,7 @@ def index_articles(articles, db_path="data/chroma_db"):
     all_metadatas = []
     all_ids = []
     
-    print(f"Processing {len(articles)} articles...")
+    logger.info(f"Processing {len(articles)} articles...")
     
     for i, article in enumerate(articles):
         content = article.get("content", "")
@@ -103,13 +151,13 @@ def index_articles(articles, db_path="data/chroma_db"):
             all_ids.append(f"article_{i}_chunk_{j}")
         
         if (i + 1) % 50 == 0:
-            print(f"  Processed {i + 1}/{len(articles)} articles...")
+            logger.info(f"  Processed {i + 1}/{len(articles)} articles...")
     
     # Add in batches to avoid memory issues
     batch_size = 500
     total_chunks = len(all_chunks)
     
-    print(f"\nIndexing {total_chunks} chunks in batches of {batch_size}...")
+    logger.info(f"Indexing {total_chunks} chunks in batches of {batch_size}...")
     
     for start in range(0, total_chunks, batch_size):
         end = min(start + batch_size, total_chunks)
@@ -120,19 +168,32 @@ def index_articles(articles, db_path="data/chroma_db"):
             ids=all_ids[start:end]
         )
         
-        print(f"  Indexed chunks {start}-{end} of {total_chunks}")
+        logger.info(f"  Indexed chunks {start}-{end} of {total_chunks}")
     
-    print(f"\n✓ Successfully indexed {total_chunks} chunks from {len(articles)} articles")
-    print(f"✓ ChromaDB saved to: {db_path}")
-    print(f"✓ Embedding model: {EMBEDDING_MODEL}")
+    logger.info(f"✓ Successfully indexed {total_chunks} chunks from {len(articles)} articles")
+    logger.info(f"✓ ChromaDB saved to: {db_path}")
+    logger.info(f"✓ Embedding model: {EMBEDDING_MODEL}")
     
     return collection
 
 
+# ============================================================
+# VERIFICATION
+# ============================================================
+
 def verify_index(db_path="data/chroma_db"):
-    """Verify the index works with Arabic queries."""
+    """
+    Verify the index works correctly with Arabic queries.
     
-    print("\n=== VERIFICATION ===")
+    Tests semantic search with common Arabic entity names to ensure
+    the multilingual embeddings are working properly.
+    
+    Args:
+        db_path (str): Path to ChromaDB storage directory
+    """
+    logger.info("="*50)
+    logger.info("VERIFICATION")
+    logger.info("="*50)
     
     client = chromadb.PersistentClient(path=db_path)
     
@@ -145,7 +206,7 @@ def verify_index(db_path="data/chroma_db"):
         embedding_function=embed_fn
     )
     
-    print(f"Collection has {collection.count()} chunks")
+    logger.info(f"Collection has {collection.count()} chunks")
     
     # Test Arabic search
     test_queries = [
@@ -161,25 +222,29 @@ def verify_index(db_path="data/chroma_db"):
             n_results=3
         )
         
-        print(f"\nQuery: '{query}'")
+        logger.info(f"Query: '{query}'")
         if results["documents"][0]:
-            print(f"  Found {len(results['documents'][0])} results")
-            print(f"  First result preview: {results['documents'][0][0][:100]}...")
+            logger.info(f"  Found {len(results['documents'][0])} results")
+            logger.debug(f"  First result preview: {results['documents'][0][0][:100]}...")
         else:
-            print(f"  NO RESULTS - this is a problem!")
+            logger.error(f"  NO RESULTS - this is a problem!")
 
+
+# ============================================================
+# MAIN / TEST
+# ============================================================
 
 if __name__ == "__main__":
     # Load articles
     json_path = "data/sydialogue_ar_publications.json"
     
     if not os.path.exists(json_path):
-        print(f"ERROR: {json_path} not found!")
-        print("Make sure to run this from the project root directory")
+        logger.error(f"ERROR: {json_path} not found!")
+        logger.error("Make sure to run this from the project root directory")
         exit(1)
     
     articles = load_articles(json_path)
-    print(f"Loaded {len(articles)} articles")
+    logger.info(f"Loaded {len(articles)} articles")
     
     # Index articles
     index_articles(articles)
@@ -187,6 +252,6 @@ if __name__ == "__main__":
     # Verify it works
     verify_index()
     
-    print("\n" + "="*50)
-    print("DONE! Now upload data/chroma_db to HuggingFace")
-    print("="*50)
+    logger.info("="*50)
+    logger.info("DONE! Now upload data/chroma_db to HuggingFace")
+    logger.info("="*50)

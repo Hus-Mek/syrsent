@@ -1,302 +1,489 @@
 """
-Sentiment analysis using Groq + Qwen
-====================================
+Comprehensive Sentiment Analyzer with Timeline
+===============================================
 
-Uses Qwen for better Arabic understanding with robust JSON cleaning.
+Core Features:
+- Scans ALL articles for target mentions (complete coverage, no sampling)
+- Groups mentions by time period (YYYY-MM)
+- Uses LLM to analyze sentiment for each period
+- Returns timeline with evidence quotes and article sources
+- Not RAG-based - processes everything chronologically
+
+This is the main analysis engine for SyrSent.
 """
 
-import os
 import json
 import re
+import logging
+from collections import defaultdict
 from groq import Groq
-from analysis.retriever import search
+import os
 
+# Setup logging
+logger = logging.getLogger(__name__)
 
-def clean_json_response(text):
+# ============================================================
+# TARGET ALIASES - Multi-language entity resolution
+# ============================================================
+TARGET_ALIASES = {
+    # Assad / Regime
+    "assad": ["الأسد", "بشار", "النظام", "نظام الأسد", "البعث", "بشار الأسد", "النظام السوري", "النظام البائد", "الأسدي"],
+    "الأسد": ["بشار", "النظام", "نظام الأسد", "البعث", "بشار الأسد", "النظام السوري", "النظام البائد"],
+    "النظام": ["الأسد", "بشار", "نظام الأسد", "البعث", "النظام السوري", "النظام البائد"],
+    
+    # HTS
+    "hts": ["هتش", "هيئة تحرير الشام", "تحرير الشام", "الجولاني", "الشرع", "أحمد الشرع", "الهيئة", "جبهة النصرة"],
+    "هتش": ["هيئة تحرير الشام", "تحرير الشام", "الجولاني", "الشرع", "أحمد الشرع", "الهيئة"],
+    "الجولاني": ["هتش", "هيئة تحرير الشام", "الشرع", "أحمد الشرع", "أبو محمد الجولاني"],
+    "الشرع": ["الجولاني", "هتش", "هيئة تحرير الشام", "أحمد الشرع"],
+    
+    # Opposition
+    "المعارضة": ["الثوار", "الفصائل", "الجيش الحر", "فصائل المعارضة", "المعارضة السورية"],
+    "opposition": ["المعارضة", "الثوار", "الفصائل", "الجيش الحر"],
+    
+    # Russia
+    "russia": ["روسيا", "الروس", "موسكو", "بوتين", "الروسي", "الروسية"],
+    "روسيا": ["الروس", "موسكو", "بوتين", "الروسي", "الروسية", "الجانب الروسي"],
+    
+    # USA
+    "usa": ["أمريكا", "الولايات المتحدة", "واشنطن", "الأمريكي", "الأمريكية", "الإدارة الأمريكية"],
+    "أمريكا": ["الولايات المتحدة", "واشنطن", "الأمريكي", "الأمريكية", "الإدارة الأمريكية"],
+    
+    # Iran
+    "iran": ["إيران", "طهران", "الإيراني", "الحرس الثوري", "الإيرانية", "حزب الله"],
+    "إيران": ["طهران", "الإيراني", "الحرس الثوري", "الإيرانية"],
+    
+    # Turkey
+    "turkey": ["تركيا", "أنقرة", "أردوغان", "التركي", "التركية"],
+    "تركيا": ["أنقرة", "أردوغان", "التركي", "التركية", "الجانب التركي"],
+    
+    # Israel
+    "israel": ["إسرائيل", "الاحتلال", "الإسرائيلي", "تل أبيب", "الصهيوني"],
+    "إسرائيل": ["الاحتلال", "الإسرائيلي", "تل أبيب", "الصهيوني", "الكيان"],
+    
+    # SDF
+    "sdf": ["قسد", "قوات سوريا الديمقراطية", "الأكراد", "الكرد", "الإدارة الذاتية"],
+    "قسد": ["قوات سوريا الديمقراطية", "الأكراد", "الكرد", "الإدارة الذاتية", "مسد"],
+}
+
+def expand_target(target):
     """
-    Clean Qwen response to extract valid JSON.
+    Get all search terms for a target (aliases and variations).
     
-    Handles:
-    - <think>...</think> tags (sometimes doubled)
-    - ```json blocks
-    - Control characters
-    - Truncated responses
-    - Different JSON structures from Qwen
+    Args:
+        target (str): Target name (English or Arabic)
+    
+    Returns:
+        list: All search terms for this target
     """
+    terms = set([target, target.lower()])
     
-    print(f"Raw text length: {len(text)}")
+    if target.lower() in TARGET_ALIASES:
+        terms.update(TARGET_ALIASES[target.lower()])
+    if target in TARGET_ALIASES:
+        terms.update(TARGET_ALIASES[target])
     
-    # Remove ALL <think> tags and their content (Qwen sometimes nests them)
-    while "<think>" in text:
-        text = re.sub(r'<think>[\s\S]*?</think>', '', text)
-        # Also remove unclosed <think> tags
-        text = re.sub(r'<think>[\s\S]*$', '', text)
-    
-    # Remove any remaining <think> or </think> tags
-    text = text.replace('<think>', '').replace('</think>', '')
-    
-    # Remove markdown code blocks
-    if "```" in text:
-        match = re.search(r'```(?:json)?\s*([\s\S]*?)```', text)
-        if match:
-            text = match.group(1)
-    
-    text = text.strip()
-    
-    # Find JSON object
-    start = text.find("{")
-    if start == -1:
-        print("No JSON object found in response")
-        return None
-    
-    # Find matching closing brace
-    depth = 0
-    end = len(text)
-    for i, char in enumerate(text[start:], start):
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                end = i + 1
-                break
-    
-    text = text[start:end]
-    
-    # Clean control characters (keep Arabic)
-    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
-    
-    # Try to parse
-    try:
-        parsed = json.loads(text)
-        return parsed
-    except json.JSONDecodeError as e:
-        print(f"JSON parse error: {e}")
-        print(f"Attempted to parse: {text[:300]}...")
-        
-        # Try fixing truncated JSON
-        try:
-            fixed = text.rstrip()
-            open_braces = fixed.count("{") - fixed.count("}")
-            open_brackets = fixed.count("[") - fixed.count("]")
-            open_quotes = fixed.count('"') % 2
-            
-            if open_quotes:
-                fixed += '"'
-            fixed += "]" * open_brackets
-            fixed += "}" * open_braces
-            
-            return json.loads(fixed)
-        except Exception as e2:
-            print(f"Fix attempt failed: {e2}")
-            pass
-        
-        return None
+    return list(terms)
 
 
-def convert_qwen_format(parsed):
+def count_mentions(text, terms):
     """
-    Convert Qwen's array format to our expected object format.
+    Count how many times any term appears in text.
     
-    Qwen returns: {"targets": [{"name": "X", "polarity": -1, ...}]}
-    We need:      {"targets": {"X": {"sentiment": "negative", "score": -1, ...}}}
+    Args:
+        text (str): Text to search
+        terms (list): List of search terms
+    
+    Returns:
+        int: Total mention count
     """
-    if not parsed:
-        return None
-    
-    # If already in correct format, return as-is
-    if "targets" in parsed and isinstance(parsed["targets"], dict):
-        return parsed
-    
-    # Convert array format to object format
-    if "targets" in parsed and isinstance(parsed["targets"], list):
-        new_targets = {}
-        for item in parsed["targets"]:
-            name = item.get("name") or item.get("target") or "Unknown"
-            
-            # Map polarity to sentiment
-            polarity = item.get("polarity", 0)
-            if isinstance(polarity, (int, float)):
-                sentiment = "negative" if polarity < -0.2 else "positive" if polarity > 0.2 else "neutral"
-            else:
-                sentiment = item.get("sentiment", "neutral")
-            
-            new_targets[name] = {
-                "sentiment": sentiment,
-                "score": item.get("polarity", item.get("score", 0)),
-                "reasoning": item.get("explanation", item.get("reasoning", "")),
-                "evidence": item.get("evidence", [])
-            }
-        
-        return {"targets": new_targets}
-    
-    # If it's just a dict of targets without wrapper
-    if isinstance(parsed, dict) and "targets" not in parsed:
-        # Check if it looks like targets
-        first_val = next(iter(parsed.values()), None)
-        if isinstance(first_val, dict) and any(k in first_val for k in ["sentiment", "score", "polarity"]):
-            return {"targets": parsed}
-    
-    return parsed
+    if not text:
+        return 0
+    text_lower = text.lower()
+    return sum(text_lower.count(t.lower()) for t in terms)
 
 
-def analyze_sentiment(targets, client, n_chunks=100):
+# ============================================================
+# DATE AND PERIOD PARSING
+# ============================================================
+
+def parse_date_to_period(date_str):
     """
-    Analyze sentiment toward targets using RAG.
+    Parse Arabic date to YYYY-MM format.
+    
+    Args:
+        date_str (str): Arabic date string
+    
+    Returns:
+        str: Period in format '2024-03' or 'unknown' if parse fails
     """
+    if not date_str:
+        return "unknown"
     
-    print("=== ANALYZE_SENTIMENT CALLED ===")
-    print(f"Targets: {targets}")
+    # Arabic month to number mapping
+    ar_months = {
+        'يناير': '01', 'فبراير': '02', 'مارس': '03', 'أبريل': '04',
+        'مايو': '05', 'يونيو': '06', 'يوليو': '07', 'أغسطس': '08',
+        'سبتمبر': '09', 'أكتوبر': '10', 'نوفمبر': '11', 'ديسمبر': '12',
+        'كانون الثاني': '01', 'شباط': '02', 'آذار': '03', 'نيسان': '04',
+        'أيار': '05', 'حزيران': '06', 'تموز': '07', 'آب': '08',
+        'أيلول': '09', 'تشرين الأول': '10', 'تشرين الثاني': '11', 'كانون الأول': '12',
+    }
     
-    # Get relevant chunks
-    chunks = search("sentiment opinion view stance", targets, n_results=n_chunks)
+    # Extract year
+    year_match = re.search(r'(20\d{2})', date_str)
+    if not year_match:
+        return "unknown"
+    year = year_match.group(1)
     
-    print(f"Found {len(chunks)} chunks")
+    # Extract month
+    month = "01"  # default
+    for ar_month, num in ar_months.items():
+        if ar_month in date_str:
+            month = num
+            break
     
-    if not chunks:
-        return json.dumps({
-            "error": "No relevant content found",
-            "targets": {}
-        }, ensure_ascii=False)
-    
-    # Build context with source info
-    context_parts = []
-    for chunk in chunks:
-        context_parts.append(
-            f"[Source: {chunk['title']} | Date: {chunk['date']}]\n{chunk['text']}"
-        )
-    
-    context = "\n\n---\n\n".join(context_parts)
-    targets_str = ", ".join(targets)
-    
-    # Detailed prompt for Qwen
-    prompt = f"""Analyze the sentiment toward these targets: {targets_str}
+    return f"{year}-{month}"
 
-You are analyzing Arabic articles from the Syrian Dialogue Center (مركز الحوار السوري).
 
-For each target, provide:
-1. Overall sentiment (positive/negative/neutral)
-2. Score from -1 to 1
-3. EXACT QUOTES from the Arabic text as evidence (copy word-for-word)
-4. The source article and date for each quote
-5. Consider related terms:
-   - Assad = الأسد = النظام = نظام الأسد = البعث = regime
-   - Opposition = المعارضة = الثوار = الفصائل
-   - Russia = روسيا = الروس = موسكو
-   - USA = أمريكا = الولايات المتحدة = واشنطن = الغرب
-   - Iran = إيران = طهران = الحرس الثوري
-   - Turkey = تركيا = أنقرة
-   - Israel = إسرائيل = الاحتلال
-   - Civilians = المدنيين = الشعب السوري
-
-Respond with ONLY a JSON object (no other text, no markdown):
-{{
-    "targets": {{
-        "target_name": {{
-            "sentiment": "positive" or "negative" or "neutral",
-            "score": -1 to 1,
-            "evidence": [
-                {{
-                    "quote": "exact Arabic quote from text",
-                    "source": "article title",
-                    "date": "publication date"
-                }}
-            ],
-            "reasoning": "explanation of the sentiment"
-        }}
-    }}
-}}
-
-IMPORTANT:
-- Extract multiple pieces of evidence (3-5 quotes per target)
-- Quotes must be EXACT text from the articles
-- Do NOT repeat the same phrase multiple times
-- Keep each quote under 100 words
-- Output valid JSON only
-
-Context:
-{context}"""
-
-    try:
-        response = client.chat.completions.create(
-            model="qwen/qwen3-32b",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0,
-            max_tokens=4000
-        )
-        
-        result_text = response.choices[0].message.content
-        print(f"Raw response length: {len(result_text)}")
-        
-        # Clean and parse
-        parsed = clean_json_response(result_text)
-        
-        if parsed:
-            # Convert Qwen's format to our expected format
-            parsed = convert_qwen_format(parsed)
-            
-            if not parsed or "targets" not in parsed:
-                return json.dumps({
-                    "error": "Invalid response structure",
-                    "targets": {}
-                }, ensure_ascii=False)
-            
-            # Ensure each target has required fields
-            for target, data in parsed.get("targets", {}).items():
-                if "score" not in data:
-                    data["score"] = 0
-                if "sentiment" not in data:
-                    score = data.get("score", 0)
-                    data["sentiment"] = "negative" if score < -0.2 else "positive" if score > 0.2 else "neutral"
-                if "reasoning" not in data:
-                    data["reasoning"] = ""
-                if "evidence" not in data:
-                    data["evidence"] = []
-                    
-                # Convert string evidence to object format
-                fixed_evidence = []
-                for ev in data.get("evidence", []):
-                    if isinstance(ev, str):
-                        fixed_evidence.append({
-                            "quote": ev,
-                            "source": "Unknown",
-                            "date": "Unknown"
-                        })
-                    elif isinstance(ev, dict):
-                        fixed_evidence.append({
-                            "quote": ev.get("quote", str(ev)),
-                            "source": ev.get("source", "Unknown"),
-                            "date": ev.get("date", "Unknown")
-                        })
-                data["evidence"] = fixed_evidence
-            
-            return json.dumps(parsed, ensure_ascii=False, indent=2)
-        else:
-            return json.dumps({
-                "error": "Failed to parse LLM response",
-                "raw_preview": result_text[:500],
-                "targets": {}
-            }, ensure_ascii=False)
-            
-    except Exception as e:
-        print(f"LLM Error: {e}")
-        import traceback
-        traceback.print_exc()
-        return json.dumps({
-            "error": str(e),
-            "targets": {}
-        }, ensure_ascii=False)
-
+# ============================================================
+# DATA LOADING
+# ============================================================
 
 def load_articles(filepath="data/sydialogue_ar_publications.json"):
-    """Load scraped articles from JSON."""
+    """
+    Load articles from JSON file.
+    
+    Args:
+        filepath (str): Path to articles JSON file
+    
+    Returns:
+        list: Article objects with title, content, date, etc.
+    """
     with open(filepath, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
+# ============================================================
+# MENTION DETECTION
+# ============================================================
+
+def find_all_mentions(articles, target):
+    """
+    Find ALL articles mentioning the target.
+    Groups results by time period.
+    
+    Args:
+        articles (list): All articles
+        target (str): Target entity name
+    
+    Returns:
+        tuple: (by_period dict, sorted periods, total articles, total mentions)
+    """
+    terms = expand_target(target)
+    logger.info(f"Scanning articles for: {target}")
+    logger.debug(f"Search terms: {terms[:5]}... ({len(terms)} total)")
+    
+    by_period = defaultdict(list)
+    total_mentions = 0
+    
+    for article in articles:
+        content = article.get("content", "")
+        title = article.get("title", "")
+        full_text = f"{title}\n{content}"
+        
+        mentions = count_mentions(full_text, terms)
+        
+        if mentions > 0:
+            period = parse_date_to_period(article.get("date", ""))
+            
+            by_period[period].append({
+                "title": title,
+                "content": content,
+                "date": article.get("date", "Unknown"),
+                "url": article.get("url", ""),
+                "mentions": mentions
+            })
+            total_mentions += mentions
+    
+    # Sort periods chronologically
+    sorted_periods = sorted(by_period.keys())
+    
+    # Log statistics
+    total_articles = sum(len(arts) for arts in by_period.values())
+    logger.info(f"Found: {total_articles} articles with {total_mentions} mentions")
+    logger.info(f"Periods: {len(sorted_periods)}")
+    for period in sorted_periods:
+        arts = by_period[period]
+        mentions = sum(a["mentions"] for a in arts)
+        logger.debug(f"  {period}: {len(arts)} articles, {mentions} mentions")
+    
+    return by_period, sorted_periods, total_articles, total_mentions
+
+
+
+
+# ============================================================
+# SENTIMENT ANALYSIS
+# ============================================================
+
+def analyze_period(articles, target, period, client):
+    """
+    Analyze sentiment for a specific time period using LLM.
+    
+    The LLM understands context, relationships, and factions,
+    providing nuanced sentiment analysis beyond simple keywords.
+    
+    Args:
+        articles (list): Articles for this period mentioning target
+        target (str): Target entity name
+        period (str): Time period (YYYY-MM)
+        client: Groq API client
+    
+    Returns:
+        dict: Sentiment analysis with summary, evidence, and confidence
+    """
+    if not articles:
+        return None
+    
+    # Build context from articles, prioritizing most relevant
+    context_parts = []
+    total_chars = 0
+    max_chars = 8000  # Per period limit
+    
+    # Sort by mention count (most relevant first)
+    sorted_articles = sorted(articles, key=lambda x: x["mentions"], reverse=True)
+    
+    for art in sorted_articles:
+        chunk = f"[{art['title']}]\n{art['content'][:1500]}"  # Truncate long articles
+        
+        if total_chars + len(chunk) > max_chars:
+            break
+        
+        context_parts.append(chunk)
+        total_chars += len(chunk)
+    
+    context = "\n\n---\n\n".join(context_parts)
+    
+    prompt = f"""Analyze sentiment toward "{target}" in these Arabic articles from period {period}.
+
+CRITICAL INSTRUCTION - READ CAREFULLY:
+You MUST analyze ONLY the sentiment expressed directly TOWARD "{target}".
+DO NOT analyze general article sentiment.
+DO NOT analyze sentiment toward other entities.
+
+ONLY consider sentences/paragraphs that:
+1. Directly mention "{target}"
+2. Describe actions BY or TOWARD "{target}"
+3. Express opinions/judgments ABOUT "{target}"
+
+IGNORE:
+- General article tone (unless about {target})
+- Sentiment toward other entities (Russia, USA, etc.)
+- Sentences that only mention {target} in passing
+
+EXAMPLE:
+Article: "روسيا تتهم المعارضة. تركيا حضرت الاجتماع."
+Target: تركيا
+✅ ANALYZE: "تركيا حضرت الاجتماع" → neutral statement
+❌ IGNORE: "روسيا تتهم المعارضة" → about Russia, not Turkey!
+
+OUTPUT JSON ONLY (no other text):
+{{
+    "period": "{period}",
+    "sentiment": "positive" | "negative" | "neutral" | "mixed",
+    "score": -1.0 to 1.0,
+    "article_count": {len(articles)},
+    "key_themes": ["theme1", "theme2"],
+    "evidence": [
+        {{"quote": "اقتباس عربي يذكر {target}", "sentiment": "positive/negative"}}
+    ],
+    "reasoning": "Brief explanation of sentiment toward {target} specifically"
+}}
+
+ARTICLES:
+{context}
+
+JSON:"""
+
+    try:
+        response = client.chat.completions.create(
+            model="qwen/qwen3-32b",
+            messages=[
+                {"role": "system", "content": "You are a JSON API. Output valid JSON only. No <think> tags."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0,
+            max_tokens=1500
+        )
+        
+        result = response.choices[0].message.content
+        
+        # Clean response - remove thinking tags if present
+        result = re.sub(r'<think>.*?</think>', '', result, flags=re.DOTALL)
+        result = result.strip()
+        
+        # Extract JSON from response
+        start = result.find('{')
+        end = result.rfind('}') + 1
+        if start >= 0 and end > start:
+            return json.loads(result[start:end])
+        
+    except Exception as e:
+        logger.error(f"Error analyzing period {period}: {e}", exc_info=True)
+    
+    return None
+
+
+# ============================================================
+# MAIN ANALYSIS WORKFLOW
+# ============================================================
+
+def analyze_sentiment_timeline(targets, client, articles_path="data/sydialogue_ar_publications.json"):
+    """
+    Main entry point for sentiment timeline analysis.
+    
+    Analyzes sentiment evolution for target entities across all time periods
+    in the articles dataset. Returns comprehensive results grouped by target
+    and period with sentiment scores, evidence, and themes.
+    
+    Args:
+        targets (list): Entity names to analyze (e.g., ['Assad', 'HTS'])
+        client: Groq API client for LLM sentiment analysis
+        articles_path (str): Path to articles JSON file
+    
+    Returns:
+        dict: Results containing sentiment timeline for each target with:
+              - timeline (list): Period-by-period analysis
+              - total_articles (int): Articles mentioning target
+              - total_mentions (int): Total mention count
+              - error (str): Error message if analysis failed
+    """
+    logger.info("="*60)
+    logger.info("COMPREHENSIVE SENTIMENT ANALYSIS WITH TIMELINE")
+    logger.info("="*60)
+    
+    # Load all articles
+    articles = load_articles(articles_path)
+    logger.info(f"Loaded {len(articles)} total articles")
+    
+    results = {
+        "targets": {}
+    }
+    
+    for target in targets:
+        # Find ALL mentions of target across articles
+        by_period, sorted_periods, total_articles, total_mentions = find_all_mentions(articles, target)
+        
+        if not by_period:
+            results["targets"][target] = {
+                "error": "No mentions found",
+                "timeline": [],
+                "total_articles": 0,
+                "total_mentions": 0
+            }
+            continue
+        
+        # Analyze sentiment for each time period
+        logger.info(f"Analyzing {len(sorted_periods)} periods for '{target}'...")
+        
+        timeline = []
+        all_evidence = []
+        all_themes = []
+        score_sum = 0
+        score_count = 0
+        
+        for period in sorted_periods:
+            period_articles = by_period[period]
+            logger.info(f"  Analyzing {period} ({len(period_articles)} articles)...")
+            
+            period_analysis = analyze_period(period_articles, target, period, client)
+            
+            if period_analysis:
+                timeline.append({
+                    "period": period,
+                    "sentiment": period_analysis.get("sentiment", "neutral"),
+                    "score": period_analysis.get("score", 0),
+                    "article_count": len(period_articles),
+                    "mention_count": sum(a["mentions"] for a in period_articles),
+                    "themes": period_analysis.get("key_themes", []),
+                    "reasoning": period_analysis.get("reasoning", "")
+                })
+                
+                # Collect evidence with period info
+                for ev in period_analysis.get("evidence", []):
+                    ev["period"] = period
+                    all_evidence.append(ev)
+                
+                all_themes.extend(period_analysis.get("key_themes", []))
+                
+                if period_analysis.get("score") is not None:
+                    score_sum += period_analysis["score"]
+                    score_count += 1
+        
+        # Calculate overall sentiment from average score
+        avg_score = score_sum / score_count if score_count > 0 else 0
+        overall_sentiment = "negative" if avg_score < -0.2 else "positive" if avg_score > 0.2 else "neutral"
+        
+        # Detect trend across time periods
+        if len(timeline) >= 2:
+            first_half = [t["score"] for t in timeline[:len(timeline)//2]]
+            second_half = [t["score"] for t in timeline[len(timeline)//2:]]
+            first_avg = sum(first_half) / len(first_half) if first_half else 0
+            second_avg = sum(second_half) / len(second_half) if second_half else 0
+            
+            if second_avg > first_avg + 0.2:
+                trend = "improving"
+            elif second_avg < first_avg - 0.2:
+                trend = "declining"
+            else:
+                trend = "stable"
+        else:
+            trend = "insufficient_data"
+        
+        # Compile final results for this target
+        results["targets"][target] = {
+            "overall_sentiment": overall_sentiment,
+            "overall_score": round(avg_score, 2),
+            "trend": trend,
+            "total_articles": total_articles,
+            "total_mentions": total_mentions,
+            "periods_analyzed": len(timeline),
+            "timeline": timeline,
+            "evidence": all_evidence[:15],  # Top 15 quotes
+            "key_themes": list(set(all_themes))[:10],
+            "reasoning": f"Based on {total_articles} articles across {len(timeline)} time periods. Overall sentiment is {overall_sentiment} with {trend} trend."
+        }
+    
+    return results
+
+
+# ============================================================
+# BACKWARDS COMPATIBILITY
+# ============================================================
+
+def analyze_sentiment(targets, client, n_chunks=None):
+    """
+    Wrapper for backwards compatibility with existing code.
+    
+    Args:
+        targets (list): Entity names to analyze
+        client: Groq API client
+        n_chunks (int): Ignored - analysis includes all articles
+    
+    Returns:
+        str: JSON string with sentiment analysis results
+    """
+    result = analyze_sentiment_timeline(targets, client)
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
 if __name__ == "__main__":
+    # Test sentiment analysis
     client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
     
-    result = analyze_sentiment(["Assad", "Russia"], client)
-    print("\n=== RESULT ===")
-    print(result)
+    result = analyze_sentiment_timeline(["الأسد"], client)
+    logger.info("="*60)
+    logger.info("SENTIMENT ANALYSIS RESULT:")
+    logger.info("="*60)
+    logger.info(json.dumps(result, ensure_ascii=False, indent=2))

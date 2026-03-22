@@ -7,14 +7,23 @@ Differentiates between:
 - Assad Regime (pre-December 2024)
 - New Syrian Government / HTS-led (post-December 2024)
 
-Provides article references and timeline evolution.
+Provides article references and timeline evolution of relationships
+between all tracked entities.
 """
 
 import json
 import re
+import logging
 from collections import defaultdict
 from groq import Groq
 import os
+
+# ============================================================
+# LOGGING CONFIGURATION
+# ============================================================
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 # ============================================================
 # ENTITY DEFINITIONS - Updated for political transition
@@ -123,7 +132,11 @@ ENTITIES = {
     },
 }
 
-# Relationship types with Arabic equivalents
+# ============================================================
+# RELATIONSHIP TYPE DEFINITIONS
+# ============================================================
+
+# Relationship types with Arabic equivalents and visual colors
 RELATIONSHIP_TYPES = {
     "alliance": {"ar": "تحالف", "color": "#4caf50"},
     "support": {"ar": "دعم", "color": "#8bc34a"},
@@ -136,11 +149,24 @@ RELATIONSHIP_TYPES = {
 }
 
 
+# ============================================================
+# DATE AND PERIOD PARSING
+# ============================================================
+
 def parse_date_to_period(date_str):
-    """Parse Arabic date to YYYY-MM format."""
+    """
+    Parse Arabic date string to YYYY-MM format for period grouping.
+    
+    Args:
+        date_str (str): Arabic date string
+    
+    Returns:
+        str: Period in format '2024-03' or 'unknown' if parse fails
+    """
     if not date_str:
         return "unknown"
     
+    # Arabic month to numeric month mapping
     ar_months = {
         'يناير': '01', 'فبراير': '02', 'مارس': '03', 'أبريل': '04',
         'مايو': '05', 'يونيو': '06', 'يوليو': '07', 'أغسطس': '08',
@@ -150,11 +176,13 @@ def parse_date_to_period(date_str):
         'أيلول': '09', 'تشرين الأول': '10', 'تشرين الثاني': '11', 'كانون الأول': '12',
     }
     
+    # Extract year from date string
     year_match = re.search(r'(20\d{2})', date_str)
     if not year_match:
         return "unknown"
     year = year_match.group(1)
     
+    # Extract month - default to January if not found
     month = "01"
     for ar_month, num in ar_months.items():
         if ar_month in date_str:
@@ -164,10 +192,41 @@ def parse_date_to_period(date_str):
     return f"{year}-{month}"
 
 
+# ============================================================
+# DATA LOADING
+# ============================================================
+
+def load_articles(filepath="data/sydialogue_ar_publications.json"):
+    """
+    Load articles from JSON file.
+    
+    Args:
+        filepath (str): Path to articles JSON file
+    
+    Returns:
+        list: Article objects with title, content, date, url, etc.
+    """
+    with open(filepath, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+# ============================================================
+# ENTITY DETECTION AND PAIRING
+# ============================================================
+
 def find_entities_in_text(text, period=None):
     """
     Find entities mentioned in text.
-    If period provided, handles regime vs new government based on date.
+    
+    If period provided, handles regime transition (distinguishing
+    Assad regime references from new government references).
+    
+    Args:
+        text (str): Text to search for entity mentions
+        period (str): Time period (YYYY-MM) for context-aware detection
+    
+    Returns:
+        set: Entity IDs found in text
     """
     if not text:
         return set()
@@ -178,15 +237,14 @@ def find_entities_in_text(text, period=None):
         # Check if entity is active in this period
         if period and period != "unknown":
             active = info.get("active_period", {})
+            # If entity has an end date and we're past it, still detect but will be labeled
             if active.get("end") and period > active["end"]:
-                # Entity no longer active (e.g., Assad regime after Dec 2024)
-                # Still detect but will be labeled appropriately
-                pass
+                pass  # Entity no longer active but still detectable
+            # If entity has a start date and we're before it, skip
             if active.get("start") and period < active["start"]:
-                # Entity not yet active
                 continue
         
-        # Check aliases
+        # Check if any alias appears in text
         for alias in info.get("aliases", []):
             if alias in text:
                 found.add(entity_id)
@@ -195,14 +253,16 @@ def find_entities_in_text(text, period=None):
     return found
 
 
-def load_articles(filepath="data/sydialogue_ar_publications.json"):
-    """Load all articles."""
-    with open(filepath, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
 def find_articles_with_entity_pairs(articles):
-    """Find articles mentioning at least 2 entities, grouped by period."""
+    """
+    Find articles mentioning at least 2 entities, grouped by time period.
+    
+    Args:
+        articles (list): All articles
+    
+    Returns:
+        dict: Nested dict {pair_key: {period: [articles with both entities]}}
+    """
     pair_articles = defaultdict(lambda: defaultdict(list))
     
     for article in articles:
@@ -211,8 +271,10 @@ def find_articles_with_entity_pairs(articles):
         full_text = f"{title}\n{content}"
         period = parse_date_to_period(article.get("date", ""))
         
+        # Find all entities in this article
         entities = find_entities_in_text(full_text, period)
         
+        # If 2+ entities found, record all entity pairs
         if len(entities) >= 2:
             entity_list = sorted(list(entities))
             for i, e1 in enumerate(entity_list):
@@ -229,22 +291,45 @@ def find_articles_with_entity_pairs(articles):
     return pair_articles
 
 
+
+
+# ============================================================
+# RELATIONSHIP ANALYSIS
+# ============================================================
+
 def analyze_relationship_period(entity1, entity2, articles, period, client):
-    """Analyze relationship for a specific time period."""
+    """
+    Analyze relationship between two entities for a specific time period.
+    
+    Uses LLM to determine relationship type (alliance, conflict, etc.) based on
+    article evidence. Carefully validates that relationships are explicitly
+    supported by text mentioning both entities.
+    
+    Args:
+        entity1 (str): First entity ID
+        entity2 (str): Second entity ID
+        articles (list): Articles mentioning both entities in this period
+        period (str): Time period (YYYY-MM)
+        client: Groq API client
+    
+    Returns:
+        dict: Relationship analysis with type, strength, evidence, and article refs
+    """
     if not articles:
         return None
     
+    # Get entity information
     e1_info = ENTITIES.get(entity1, {"name_en": entity1, "name_ar": entity1})
     e2_info = ENTITIES.get(entity2, {"name_en": entity2, "name_ar": entity2})
     
-    # Build context with article references
+    # Build context from articles (max 8 per period to control token usage)
     context_parts = []
-    for i, art in enumerate(articles[:8]):  # Max 8 articles per period
+    for i, art in enumerate(articles[:8]):
         context_parts.append(f"[Article {i+1}] {art['title']}\nDate: {art['date']}\nURL: {art['url']}\n{art['content'][:800]}")
     
     context = "\n\n---\n\n".join(context_parts)
     
-    # Note about political transition
+    # Add political transition context if relevant
     transition_note = ""
     if period >= "2024-12":
         transition_note = """
@@ -338,7 +423,7 @@ REMEMBER: If you cannot find a direct quote showing BOTH entities interacting, y
 
     try:
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             max_tokens=2000
@@ -346,7 +431,7 @@ REMEMBER: If you cannot find a direct quote showing BOTH entities interacting, y
         
         result = response.choices[0].message.content
         
-        # Extract JSON
+        # Extract JSON from response
         json_match = re.search(r'\{[\s\S]*\}', result)
         if json_match:
             parsed = json.loads(json_match.group())
@@ -359,7 +444,7 @@ REMEMBER: If you cannot find a direct quote showing BOTH entities interacting, y
                         ev["article_url"] = articles[idx].get("url", "")
                         ev["article_title"] = articles[idx].get("title", "")
             
-            # Add referenced articles
+            # Add referenced articles to result
             parsed["articles"] = []
             for idx in parsed.get("article_references", []):
                 if 0 < idx <= len(articles):
@@ -373,19 +458,36 @@ REMEMBER: If you cannot find a direct quote showing BOTH entities interacting, y
             return parsed
             
     except Exception as e:
-        print(f"Error analyzing {entity1}-{entity2} for {period}: {e}")
+        logger.error(f"Error analyzing {entity1}-{entity2} for {period}: {e}", exc_info=True)
     
     return None
 
 
+# ============================================================
+# TIMELINE BUILDING
+# ============================================================
+
 def build_relationship_timeline(entity1, entity2, client, articles_path="data/sydialogue_ar_publications.json", min_articles_per_period=2):
     """
     Build timeline of relationship between two entities.
+    
+    Analyzes sentiment evolution across all time periods where both
+    entities are mentioned together.
+    
+    Args:
+        entity1 (str): First entity ID
+        entity2 (str): Second entity ID
+        client: Groq API client
+        articles_path (str): Path to articles JSON file
+        min_articles_per_period (int): Minimum articles needed to analyze a period
+    
+    Returns:
+        dict: Timeline data with entity info, periods, trend, and article count
     """
     articles = load_articles(articles_path)
     pair_articles = find_articles_with_entity_pairs(articles)
     
-    # Try both orderings of the pair key
+    # Try both orderings of the entity pair
     pair_key = f"{entity1}|{entity2}"
     if pair_key not in pair_articles:
         pair_key = f"{entity2}|{entity1}"
@@ -395,7 +497,7 @@ def build_relationship_timeline(entity1, entity2, client, articles_path="data/sy
     
     periods_data = pair_articles[pair_key]
     
-    # Analyze each period
+    # Analyze each time period
     timeline = []
     all_articles = []
     
@@ -407,7 +509,7 @@ def build_relationship_timeline(entity1, entity2, client, articles_path="data/sy
         if len(period_arts) < min_articles_per_period:
             continue
         
-        print(f"  Analyzing {period}: {len(period_arts)} articles")
+        logger.info(f"  Analyzing {period}: {len(period_arts)} articles")
         
         analysis = analyze_relationship_period(entity1, entity2, period_arts, period, client)
         
@@ -419,18 +521,19 @@ def build_relationship_timeline(entity1, entity2, client, articles_path="data/sy
             })
             all_articles.extend(period_arts)
     
-    # Calculate overall trend
+    # Calculate overall trend across time periods
     if len(timeline) >= 2:
         first_half = timeline[:len(timeline)//2]
         second_half = timeline[len(timeline)//2:]
         
-        # Count relationship types
-        def sentiment_score(t):
-            if t in ["alliance", "support", "cooperation"]:
+        # Helper function to score relationship sentiment
+        def sentiment_score(relationship_type):
+            """Convert relationship type to numeric score."""
+            if relationship_type in ["alliance", "support", "cooperation"]:
                 return 1
-            elif t in ["conflict", "opposition"]:
+            elif relationship_type in ["conflict", "opposition"]:
                 return -1
-            elif t in ["tension"]:
+            elif relationship_type == "tension":
                 return -0.5
             return 0
         
@@ -446,6 +549,7 @@ def build_relationship_timeline(entity1, entity2, client, articles_path="data/sy
     else:
         trend = "insufficient_data"
     
+    # Compile final result
     e1_info = ENTITIES.get(entity1, {})
     e2_info = ENTITIES.get(entity2, {})
     
@@ -471,17 +575,30 @@ def build_relationship_timeline(entity1, entity2, client, articles_path="data/sy
 
 def build_relationship_map(client, articles_path="data/sydialogue_ar_publications.json", min_articles=5, max_pairs=20):
     """
-    Build relationship map with timeline for top entity pairs.
+    Build comprehensive relationship map with timelines.
+    
+    Identifies top entity pairs and analyzes their relationship evolution
+    across all time periods. Results include nodes (entities), edges (relationships),
+    and temporal trends.
+    
+    Args:
+        client: Groq API client
+        articles_path (str): Path to articles JSON file
+        min_articles (int): Minimum articles required for pair analysis
+        max_pairs (int): Maximum number of pairs to analyze
+    
+    Returns:
+        dict: Nodes (entities), relationships (with timelines), and statistics
     """
-    print("\n" + "="*60)
-    print("BUILDING RELATIONSHIP MAP WITH TIMELINES")
-    print("="*60)
+    logger.info("="*60)
+    logger.info("BUILDING RELATIONSHIP MAP WITH TIMELINES")
+    logger.info("="*60)
     
     articles = load_articles(articles_path)
-    print(f"Loaded {len(articles)} articles")
+    logger.info(f"Loaded {len(articles)} articles")
     
     pair_articles = find_articles_with_entity_pairs(articles)
-    print(f"Found {len(pair_articles)} entity pairs")
+    logger.info(f"Found {len(pair_articles)} entity pairs")
     
     # Count total articles per pair
     pair_totals = {}
@@ -490,9 +607,9 @@ def build_relationship_map(client, articles_path="data/sydialogue_ar_publication
         if total >= min_articles:
             pair_totals[pair_key] = total
     
-    print(f"Pairs with {min_articles}+ articles: {len(pair_totals)}")
+    logger.info(f"Pairs with {min_articles}+ articles: {len(pair_totals)}")
     
-    # Sort by article count, take top pairs
+    # Sort by article count and take top pairs
     top_pairs = sorted(pair_totals.items(), key=lambda x: -x[1])[:max_pairs]
     
     relationships = []
@@ -500,7 +617,7 @@ def build_relationship_map(client, articles_path="data/sydialogue_ar_publication
     
     for pair_key, total_count in top_pairs:
         entity1, entity2 = pair_key.split("|")
-        print(f"\nAnalyzing: {entity1} <-> {entity2} ({total_count} articles)")
+        logger.info(f"Analyzing: {entity1} <-> {entity2} ({total_count} articles)")
         
         timeline_data = build_relationship_timeline(entity1, entity2, client, articles_path)
         
@@ -547,8 +664,17 @@ def build_relationship_map(client, articles_path="data/sydialogue_ar_publication
     }
 
 
+# ============================================================
+# UTILITY FUNCTIONS
+# ============================================================
+
 def get_entities_list():
-    """Return list of all tracked entities."""
+    """
+    Return list of all tracked entities with metadata.
+    
+    Returns:
+        list: Entity objects with name, type, aliases, and active period
+    """
     return [
         {
             "id": entity_id,
@@ -562,9 +688,13 @@ def get_entities_list():
     ]
 
 
+# ============================================================
+# MAIN / TEST
+# ============================================================
+
 if __name__ == "__main__":
+    # Test single relationship timeline analysis
     client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
     
-    # Test single relationship timeline
     result = build_relationship_timeline("هتش", "تركيا", client)
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    logger.info(json.dumps(result, ensure_ascii=False, indent=2))
