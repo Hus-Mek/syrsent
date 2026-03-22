@@ -1,0 +1,211 @@
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import createCache from '@emotion/cache';
+import { prefixer } from 'stylis';
+import rtlPlugin from 'stylis-plugin-rtl';
+
+const ltrCache = createCache({ key: 'mui' });
+const rtlCache = createCache({ key: 'muirtl', stylisPlugins: [prefixer, rtlPlugin] });
+
+const translations = {
+  en: {
+    appTitle: 'SyrSent',
+    appSubtitle: 'Syria Sentiment Analysis Platform',
+    dashboard: 'Dashboard',
+    sentimentAnalysis: 'Sentiment Analysis',
+    sourceComparison: 'Source Comparison',
+    coverageExplorer: 'Coverage Explorer',
+    relationshipMap: 'Relationship Map',
+    searchPlaceholder: 'Search entities, topics, or keywords...',
+    analyzeSentiment: 'Analyze Sentiment',
+    analyzing: 'Analyzing...',
+    compareSources: 'Compare Sources',
+    comparing: 'Comparing...',
+    explore: 'Explore',
+    exploring: 'Exploring...',
+    articles: 'Articles',
+    mentions: 'Mentions',
+    periods: 'Periods',
+    score: 'Score',
+    trend: 'Trend',
+    evidence: 'Evidence',
+    themes: 'Themes',
+    keyThemes: 'Key Themes',
+    sources: 'Sources',
+    totalArticles: 'Total Articles',
+    allSources: 'All Sources',
+    filterBySource: 'Filter by Source',
+    noData: 'No data available',
+    loading: 'Loading...',
+    error: 'Error',
+    cached: 'Cached',
+    clearCache: 'Clear Cache',
+    refresh: 'Refresh',
+    refreshData: 'Refresh Data',
+    periodAnalysis: 'Period Analysis',
+    evidenceQuotes: 'Evidence Quotes',
+    overallScore: 'Overall Score',
+    sentiment: 'Sentiment',
+    positive: 'Positive',
+    negative: 'Negative',
+    neutral: 'Neutral',
+    mixed: 'Mixed',
+    improving: 'Improving',
+    declining: 'Declining',
+    stable: 'Stable',
+    insufficientData: 'Insufficient Data',
+    targetEntities: 'Target Entities',
+    targetPlaceholder: 'e.g., assad, \u0647\u062A\u0634, russia, turkey',
+    separateWithCommas: 'Separate multiple targets with commas',
+    entityTopic: 'Entity / Topic',
+    articlesAnalyzed: 'articles analyzed',
+    relationshipsMapped: 'relationships mapped',
+    entities: 'Entities',
+    relationshipTypes: 'Relationship Types',
+    clickToExpand: 'Click to expand',
+    periodByPeriod: 'Period by Period Analysis',
+    keyEvents: 'Key Events',
+    sourceArticles: 'Source Articles',
+    viewArticle: 'View Article',
+    quickActions: 'Quick Actions',
+    suggestedSearches: 'Suggested Searches',
+    analyzeDesc: 'Track sentiment trends over time using AI-powered analysis',
+    compareDesc: 'Compare how different news sources cover the same topics',
+    coverageDesc: 'Explore topic coverage across sources \u2014 instant, no AI needed',
+    relationshipsDesc: 'Map relationships between Syrian political entities',
+    coverageTimeline: 'Coverage Timeline',
+    articlesPerSource: 'Articles per Source',
+    mentionsPerSource: 'Mentions per Source',
+    categories: 'Categories',
+    sydialogue: 'Syrian Dialogue Center',
+    harmoon: 'Harmoon Center',
+    aljazeera: 'Al Jazeera',
+    sentimentTimeline: 'Sentiment Timeline',
+    sentimentOverTime: 'Sentiment Score Over Time by Source',
+    coverageBySource: 'Coverage by Source',
+    noCategories: 'No categories',
+    runningAnalysis: 'Running sentiment analysis...',
+    mayTake: 'This may take 30-60 seconds',
+    scanningArticles: 'Scanning articles...',
+    loadingRelationships: 'Loading relationship map...',
+    noEvidence: 'No evidence quotes available',
+    noTimeline: 'No timeline data available',
+  },
+  ar: {
+    appTitle: '\u0633\u064A\u0631\u0633\u0646\u062A',
+    appSubtitle: '\u0645\u0646\u0635\u0629 \u062A\u062D\u0644\u064A\u0644 \u0627\u0644\u0645\u0634\u0627\u0639\u0631 \u0627\u0644\u0633\u0648\u0631\u064A\u0629',
+    dashboard: '\u0644\u0648\u062D\u0629 \u0627\u0644\u0642\u064A\u0627\u062F\u0629',
+    sentimentAnalysis: '\u062A\u062D\u0644\u064A\u0644 \u0627\u0644\u0645\u0634\u0627\u0639\u0631',
+    sourceComparison: '\u0645\u0642\u0627\u0631\u0646\u0629 \u0627\u0644\u0645\u0635\u0627\u062F\u0631',
+    coverageExplorer: '\u0627\u0633\u062A\u0643\u0634\u0627\u0641 \u0627\u0644\u062A\u063A\u0637\u064A\u0629',
+    relationshipMap: '\u062E\u0631\u064A\u0637\u0629 \u0627\u0644\u0639\u0644\u0627\u0642\u0627\u062A',
+    searchPlaceholder: '\u0627\u0628\u062D\u062B \u0639\u0646 \u0643\u064A\u0627\u0646\u0627\u062A \u0623\u0648 \u0645\u0648\u0627\u0636\u064A\u0639 \u0623\u0648 \u0643\u0644\u0645\u0627\u062A \u0645\u0641\u062A\u0627\u062D\u064A\u0629...',
+    analyzeSentiment: '\u062A\u062D\u0644\u064A\u0644 \u0627\u0644\u0645\u0634\u0627\u0639\u0631',
+    analyzing: '\u062C\u0627\u0631\u064D \u0627\u0644\u062A\u062D\u0644\u064A\u0644...',
+    compareSources: '\u0645\u0642\u0627\u0631\u0646\u0629 \u0627\u0644\u0645\u0635\u0627\u062F\u0631',
+    comparing: '\u062C\u0627\u0631\u064D \u0627\u0644\u0645\u0642\u0627\u0631\u0646\u0629...',
+    explore: '\u0627\u0633\u062A\u0643\u0634\u0627\u0641',
+    exploring: '\u062C\u0627\u0631\u064D \u0627\u0644\u0627\u0633\u062A\u0643\u0634\u0627\u0641...',
+    articles: '\u0645\u0642\u0627\u0644\u0627\u062A',
+    mentions: '\u0625\u0634\u0627\u0631\u0627\u062A',
+    periods: '\u0641\u062A\u0631\u0627\u062A',
+    score: '\u0627\u0644\u062F\u0631\u062C\u0629',
+    trend: '\u0627\u0644\u0627\u062A\u062C\u0627\u0647',
+    evidence: '\u0627\u0644\u0623\u062F\u0644\u0629',
+    themes: '\u0627\u0644\u0645\u0648\u0627\u0636\u064A\u0639',
+    keyThemes: '\u0627\u0644\u0645\u0648\u0627\u0636\u064A\u0639 \u0627\u0644\u0631\u0626\u064A\u0633\u064A\u0629',
+    sources: '\u0627\u0644\u0645\u0635\u0627\u062F\u0631',
+    totalArticles: '\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0645\u0642\u0627\u0644\u0627\u062A',
+    allSources: '\u062C\u0645\u064A\u0639 \u0627\u0644\u0645\u0635\u0627\u062F\u0631',
+    filterBySource: '\u062A\u0635\u0641\u064A\u0629 \u062D\u0633\u0628 \u0627\u0644\u0645\u0635\u062F\u0631',
+    noData: '\u0644\u0627 \u062A\u0648\u062C\u062F \u0628\u064A\u0627\u0646\u0627\u062A',
+    loading: '\u062C\u0627\u0631\u064D \u0627\u0644\u062A\u062D\u0645\u064A\u0644...',
+    error: '\u062E\u0637\u0623',
+    cached: '\u0645\u062E\u0632\u0646 \u0645\u0624\u0642\u062A\u0627\u064B',
+    clearCache: '\u0645\u0633\u062D \u0627\u0644\u062A\u062E\u0632\u064A\u0646 \u0627\u0644\u0645\u0624\u0642\u062A',
+    refresh: '\u062A\u062D\u062F\u064A\u062B',
+    refreshData: '\u062A\u062D\u062F\u064A\u062B \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A',
+    periodAnalysis: '\u062A\u062D\u0644\u064A\u0644 \u0627\u0644\u0641\u062A\u0631\u0627\u062A',
+    evidenceQuotes: '\u0627\u0642\u062A\u0628\u0627\u0633\u0627\u062A \u0627\u0644\u0623\u062F\u0644\u0629',
+    overallScore: '\u0627\u0644\u062F\u0631\u062C\u0629 \u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A\u0629',
+    sentiment: '\u0627\u0644\u0645\u0634\u0627\u0639\u0631',
+    positive: '\u0625\u064A\u062C\u0627\u0628\u064A',
+    negative: '\u0633\u0644\u0628\u064A',
+    neutral: '\u0645\u062D\u0627\u064A\u062F',
+    mixed: '\u0645\u062E\u062A\u0644\u0637',
+    improving: '\u062A\u062D\u0633\u0646',
+    declining: '\u062A\u0631\u0627\u062C\u0639',
+    stable: '\u0645\u0633\u062A\u0642\u0631',
+    insufficientData: '\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0643\u0627\u0641\u064A\u0629',
+    targetEntities: '\u0627\u0644\u0643\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0645\u0633\u062A\u0647\u062F\u0641\u0629',
+    targetPlaceholder: '\u0645\u062B\u0627\u0644: \u0627\u0644\u0623\u0633\u062F\u060C \u0647\u062A\u0634\u060C \u0631\u0648\u0633\u064A\u0627\u060C \u062A\u0631\u0643\u064A\u0627',
+    separateWithCommas: '\u0627\u0641\u0635\u0644 \u0628\u064A\u0646 \u0627\u0644\u0623\u0647\u062F\u0627\u0641 \u0627\u0644\u0645\u062A\u0639\u062F\u062F\u0629 \u0628\u0641\u0648\u0627\u0635\u0644',
+    entityTopic: '\u0643\u064A\u0627\u0646 / \u0645\u0648\u0636\u0648\u0639',
+    articlesAnalyzed: '\u0645\u0642\u0627\u0644\u0629 \u062A\u0645 \u062A\u062D\u0644\u064A\u0644\u0647\u0627',
+    relationshipsMapped: '\u0639\u0644\u0627\u0642\u0629 \u0645\u0631\u0635\u0648\u062F\u0629',
+    entities: '\u0627\u0644\u0643\u064A\u0627\u0646\u0627\u062A',
+    relationshipTypes: '\u0623\u0646\u0648\u0627\u0639 \u0627\u0644\u0639\u0644\u0627\u0642\u0627\u062A',
+    clickToExpand: '\u0627\u0636\u063A\u0637 \u0644\u0644\u062A\u0648\u0633\u064A\u0639',
+    periodByPeriod: '\u062A\u062D\u0644\u064A\u0644 \u0641\u062A\u0631\u0629 \u0628\u0641\u062A\u0631\u0629',
+    keyEvents: '\u0623\u062D\u062F\u0627\u062B \u0631\u0626\u064A\u0633\u064A\u0629',
+    sourceArticles: '\u0627\u0644\u0645\u0642\u0627\u0644\u0627\u062A \u0627\u0644\u0645\u0635\u062F\u0631\u064A\u0629',
+    viewArticle: '\u0639\u0631\u0636 \u0627\u0644\u0645\u0642\u0627\u0644',
+    quickActions: '\u0625\u062C\u0631\u0627\u0621\u0627\u062A \u0633\u0631\u064A\u0639\u0629',
+    suggestedSearches: '\u0628\u062D\u062B \u0645\u0642\u062A\u0631\u062D',
+    analyzeDesc: '\u062A\u062A\u0628\u0639 \u0627\u062A\u062C\u0627\u0647\u0627\u062A \u0627\u0644\u0645\u0634\u0627\u0639\u0631 \u0628\u0645\u0631\u0648\u0631 \u0627\u0644\u0648\u0642\u062A \u0628\u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u062A\u062D\u0644\u064A\u0644 \u0627\u0644\u0630\u0643\u0627\u0621 \u0627\u0644\u0627\u0635\u0637\u0646\u0627\u0639\u064A',
+    compareDesc: '\u0642\u0627\u0631\u0646 \u0643\u064A\u0641 \u062A\u063A\u0637\u064A \u0645\u0635\u0627\u062F\u0631 \u0627\u0644\u0623\u062E\u0628\u0627\u0631 \u0627\u0644\u0645\u062E\u062A\u0644\u0641\u0629 \u0646\u0641\u0633 \u0627\u0644\u0645\u0648\u0627\u0636\u064A\u0639',
+    coverageDesc: '\u0627\u0633\u062A\u0643\u0634\u0641 \u062A\u063A\u0637\u064A\u0629 \u0627\u0644\u0645\u0648\u0627\u0636\u064A\u0639 \u0639\u0628\u0631 \u0627\u0644\u0645\u0635\u0627\u062F\u0631 \u2014 \u0641\u0648\u0631\u064A \u0628\u062F\u0648\u0646 \u0630\u0643\u0627\u0621 \u0627\u0635\u0637\u0646\u0627\u0639\u064A',
+    relationshipsDesc: '\u0627\u0631\u0633\u0645 \u062E\u0631\u064A\u0637\u0629 \u0627\u0644\u0639\u0644\u0627\u0642\u0627\u062A \u0628\u064A\u0646 \u0627\u0644\u0643\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0633\u064A\u0627\u0633\u064A\u0629 \u0627\u0644\u0633\u0648\u0631\u064A\u0629',
+    coverageTimeline: '\u0627\u0644\u062C\u062F\u0648\u0644 \u0627\u0644\u0632\u0645\u0646\u064A \u0644\u0644\u062A\u063A\u0637\u064A\u0629',
+    articlesPerSource: '\u0627\u0644\u0645\u0642\u0627\u0644\u0627\u062A \u0644\u0643\u0644 \u0645\u0635\u062F\u0631',
+    mentionsPerSource: '\u0627\u0644\u0625\u0634\u0627\u0631\u0627\u062A \u0644\u0643\u0644 \u0645\u0635\u062F\u0631',
+    categories: '\u0627\u0644\u062A\u0635\u0646\u064A\u0641\u0627\u062A',
+    sydialogue: '\u0645\u0631\u0643\u0632 \u0627\u0644\u062D\u0648\u0627\u0631 \u0627\u0644\u0633\u0648\u0631\u064A',
+    harmoon: '\u0645\u0631\u0643\u0632 \u062D\u0631\u0645\u0648\u0646',
+    aljazeera: '\u0627\u0644\u062C\u0632\u064A\u0631\u0629',
+    sentimentTimeline: '\u0627\u0644\u062C\u062F\u0648\u0644 \u0627\u0644\u0632\u0645\u0646\u064A \u0644\u0644\u0645\u0634\u0627\u0639\u0631',
+    sentimentOverTime: '\u062F\u0631\u062C\u0629 \u0627\u0644\u0645\u0634\u0627\u0639\u0631 \u0639\u0628\u0631 \u0627\u0644\u0632\u0645\u0646 \u062D\u0633\u0628 \u0627\u0644\u0645\u0635\u062F\u0631',
+    coverageBySource: '\u0627\u0644\u062A\u063A\u0637\u064A\u0629 \u062D\u0633\u0628 \u0627\u0644\u0645\u0635\u062F\u0631',
+    noCategories: '\u0644\u0627 \u062A\u0648\u062C\u062F \u062A\u0635\u0646\u064A\u0641\u0627\u062A',
+    runningAnalysis: '\u062C\u0627\u0631\u064D \u062A\u062D\u0644\u064A\u0644 \u0627\u0644\u0645\u0634\u0627\u0639\u0631...',
+    mayTake: '\u0642\u062F \u064A\u0633\u062A\u063A\u0631\u0642 \u0663\u0660-\u0666\u0660 \u062B\u0627\u0646\u064A\u0629',
+    scanningArticles: '\u062C\u0627\u0631\u064D \u0645\u0633\u062D \u0627\u0644\u0645\u0642\u0627\u0644\u0627\u062A...',
+    loadingRelationships: '\u062C\u0627\u0631\u064D \u062A\u062D\u0645\u064A\u0644 \u062E\u0631\u064A\u0637\u0629 \u0627\u0644\u0639\u0644\u0627\u0642\u0627\u062A...',
+    noEvidence: '\u0644\u0627 \u062A\u0648\u062C\u062F \u0627\u0642\u062A\u0628\u0627\u0633\u0627\u062A \u0623\u062F\u0644\u0629',
+    noTimeline: '\u0644\u0627 \u062A\u0648\u062C\u062F \u0628\u064A\u0627\u0646\u0627\u062A \u0632\u0645\u0646\u064A\u0629',
+  },
+};
+
+const LanguageContext = createContext();
+
+export function LanguageProvider({ children }) {
+  const [language, setLanguage] = useState('en');
+  const direction = language === 'ar' ? 'rtl' : 'ltr';
+  const emotionCache = language === 'ar' ? rtlCache : ltrCache;
+
+  useEffect(() => {
+    document.documentElement.dir = direction;
+    document.documentElement.lang = language;
+  }, [language, direction]);
+
+  const toggleLanguage = useCallback(() => {
+    setLanguage((prev) => (prev === 'en' ? 'ar' : 'en'));
+  }, []);
+
+  const t = useCallback(
+    (key) => translations[language]?.[key] || translations.en[key] || key,
+    [language]
+  );
+
+  const value = useMemo(
+    () => ({ language, direction, t, toggleLanguage, emotionCache }),
+    [language, direction, t, toggleLanguage, emotionCache]
+  );
+
+  return (
+    <LanguageContext.Provider value={value}>
+      {children}
+    </LanguageContext.Provider>
+  );
+}
+
+export const useLanguage = () => useContext(LanguageContext);
