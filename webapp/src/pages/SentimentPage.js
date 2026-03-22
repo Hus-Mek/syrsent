@@ -25,21 +25,21 @@ export default function SentimentPage() {
   const { t, language } = useLanguage();
   const [searchParams] = useSearchParams();
   const [targets, setTargets] = useState(searchParams.get('targets') || '');
-  const [selectedSource, setSelectedSource] = useState(null);
+  const [selectedSource, setSelectedSource] = useState('sydialogue');
   const { data: result, loading, error, execute } = useSentimentAnalysis();
 
   useEffect(() => {
     const urlTargets = searchParams.get('targets');
     if (urlTargets) {
       const list = urlTargets.split(',').map(t => t.trim()).filter(Boolean);
-      if (list.length > 0) execute(list);
+      if (list.length > 0) execute(list, [selectedSource]);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAnalyze = () => {
     const list = targets.split(',').map(t => t.trim()).filter(Boolean);
     if (list.length === 0) return;
-    execute(list, selectedSource ? [selectedSource] : null);
+    execute(list, [selectedSource]);
   };
 
   const parseSentiment = () => {
@@ -82,15 +82,9 @@ export default function SentimentPage() {
           />
 
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            {t('filterBySource')}
+            {t('sources')}
           </Typography>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
-            <Chip
-              label={t('allSources')}
-              variant={!selectedSource ? 'filled' : 'outlined'}
-              color="primary"
-              onClick={() => setSelectedSource(null)}
-            />
             {Object.values(SOURCE_CONFIG).map(src => (
               <Chip
                 key={src.id}

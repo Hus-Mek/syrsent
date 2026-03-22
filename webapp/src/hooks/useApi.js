@@ -54,7 +54,7 @@ export function useSourceComparison() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const execute = useCallback(async (targets, sources, maxPeriods = 8) => {
+  const execute = useCallback(async (targets, sources, maxPeriods = 999) => {
     setLoading(true);
     setError('');
     setData(null);
