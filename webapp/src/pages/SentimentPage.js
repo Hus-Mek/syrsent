@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Box, Typography, TextField, Card, CardContent, Grid, Chip, Stack,
-  Accordion, AccordionSummary, AccordionDetails,
+  Box, Typography, TextField, Card, CardContent, Grid, Chip, Stack, Link,
+  Accordion, AccordionSummary, AccordionDetails, Divider,
 } from '@mui/material';
 import { LoadingButton } from '@mui/lab';
-import { ExpandMore as ExpandMoreIcon, Search as SearchIcon } from '@mui/icons-material';
+import {
+  ExpandMore as ExpandMoreIcon, Search as SearchIcon,
+  OpenInNew as OpenInNewIcon, Article as ArticleIcon,
+} from '@mui/icons-material';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useSentimentAnalysis } from '../hooks/useApi';
 import { SOURCE_CONFIG } from '../constants';
@@ -217,6 +220,83 @@ export default function SentimentPage() {
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                       {period.reasoning}
                     </Typography>
+                  )}
+
+                  {/* Cited Articles */}
+                  {period.articles?.length > 0 && (
+                    <Box sx={{ mt: 2 }}>
+                      <Divider sx={{ mb: 1.5 }} />
+                      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                        <ArticleIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+                        <Typography variant="body2" fontWeight={600}>
+                          {t('citedArticles')} ({period.articles.length})
+                        </Typography>
+                      </Stack>
+                      {period.articles.map((art, k) => {
+                        const srcConfig = SOURCE_CONFIG[art.source];
+                        return (
+                          <Box
+                            key={k}
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'flex-start',
+                              gap: 1,
+                              py: 0.75,
+                              borderBottom: '1px solid',
+                              borderColor: 'divider',
+                              '&:last-child': { borderBottom: 'none' },
+                            }}
+                          >
+                            <Box
+                              sx={{
+                                width: 6,
+                                height: 6,
+                                borderRadius: '50%',
+                                bgcolor: srcConfig?.color || '#666',
+                                mt: 1,
+                                flexShrink: 0,
+                              }}
+                            />
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              {art.url ? (
+                                <Link
+                                  href={art.url}
+                                  target="_blank"
+                                  rel="noopener"
+                                  underline="hover"
+                                  color="primary.light"
+                                  variant="body2"
+                                  dir="auto"
+                                  sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
+                                >
+                                  {art.title || 'Untitled'}
+                                  <OpenInNewIcon sx={{ fontSize: 12 }} />
+                                </Link>
+                              ) : (
+                                <Typography variant="body2" dir="auto">
+                                  {art.title || 'Untitled'}
+                                </Typography>
+                              )}
+                              <Stack direction="row" spacing={1} sx={{ mt: 0.25 }}>
+                                <Chip
+                                  label={language === 'ar' ? (srcConfig?.label_ar || art.source) : (srcConfig?.label || art.source)}
+                                  size="small"
+                                  sx={{ height: 18, fontSize: '0.65rem', bgcolor: (srcConfig?.color || '#666') + '22', color: srcConfig?.color || '#666' }}
+                                />
+                                <Typography variant="caption" color="text.secondary">
+                                  {art.mentions} {t('mentionCount')}
+                                </Typography>
+                                {art.date && (
+                                  <Typography variant="caption" color="text.secondary">
+                                    {art.date}
+                                  </Typography>
+                                )}
+                              </Stack>
+                            </Box>
+                          </Box>
+                        );
+                      })}
+                    </Box>
                   )}
                 </AccordionDetails>
               </Accordion>
