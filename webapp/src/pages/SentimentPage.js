@@ -222,6 +222,38 @@ export default function SentimentPage() {
                     </Typography>
                   )}
 
+                  {/* Evidence Quotes for this period */}
+                  {period.evidence?.length > 0 && (
+                    <Box sx={{ mt: 1.5 }}>
+                      {period.evidence.map((ev, j) => {
+                        const evColor = ev.sentiment === 'positive'
+                          ? '#10b981'
+                          : ev.sentiment === 'negative'
+                            ? '#ef4444'
+                            : '#f59e0b';
+                        return (
+                          <Box
+                            key={j}
+                            sx={{
+                              py: 0.75,
+                              borderLeft: 3,
+                              borderColor: evColor,
+                              pl: 1.5,
+                              mb: 0.75,
+                            }}
+                          >
+                            <Typography variant="body2" dir="auto" sx={{ fontStyle: 'italic' }}>
+                              "{typeof ev === 'string' ? ev : ev.quote}"
+                            </Typography>
+                            {ev.sentiment && (
+                              <SentimentBadge sentiment={ev.sentiment} />
+                            )}
+                          </Box>
+                        );
+                      })}
+                    </Box>
+                  )}
+
                   {/* Cited Articles */}
                   {period.articles?.length > 0 && (
                     <Box sx={{ mt: 2 }}>
@@ -301,43 +333,6 @@ export default function SentimentPage() {
                 </AccordionDetails>
               </Accordion>
             ))}
-
-            {/* Evidence */}
-            {data.evidence?.length > 0 && (
-              <Box sx={{ mt: 3 }}>
-                <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
-                  {t('evidenceQuotes')}
-                </Typography>
-                {data.evidence.map((ev, i) => {
-                  const sentColor = ev.sentiment === 'positive'
-                    ? '#10b981'
-                    : ev.sentiment === 'negative'
-                      ? '#ef4444'
-                      : '#f59e0b';
-                  return (
-                    <Card
-                      key={i}
-                      sx={{
-                        mb: 1,
-                        borderLeft: 4,
-                        borderColor: sentColor,
-                        bgcolor: 'background.default',
-                      }}
-                    >
-                      <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-                        <Typography variant="body2" dir="auto" sx={{ fontStyle: 'italic' }}>
-                          "{typeof ev === 'string' ? ev : ev.quote}"
-                        </Typography>
-                        <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
-                          {ev.period && <Chip label={ev.period} size="small" variant="outlined" />}
-                          {ev.sentiment && <SentimentBadge sentiment={ev.sentiment} />}
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </Box>
-            )}
           </CardContent>
         </Card>
       ))}
